@@ -4,27 +4,69 @@ struct DiffViewerPane: View {
     @Bindable var state: DiffViewerTabState
     let focused: Bool
     let onFocus: () -> Void
+    @FocusState private var paneFocused: Bool
+    @State private var hunkCount = 0
 
     var body: some View {
         VStack(spacing: 0) {
             DiffViewerBreadcrumb(state: state)
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            ScrollView([.vertical]) {
-                DiffBodyView(
-                    isLoading: state.vcs.diffCache.isLoading(state.filePath),
-                    error: state.vcs.diffCache.error(for: state.filePath),
-                    diff: state.vcs.diffCache.diff(for: state.filePath),
-                    filePath: state.filePath,
-                    mode: state.mode,
-                    onLoadFull: { state.refresh(forceFull: true) },
-                    suppressLeadingTopBorder: true
-                )
+            ScrollViewReader { proxy in
+                ScrollView([.vertical]) {
+                    DiffBodyView(
+                        isLoading: state.vcs.diffCache.isLoading(state.filePath),
+                        error: state.vcs.diffCache.error(for: state.filePath),
+                        diff: state.vcs.diffCache.diff(for: state.filePath),
+                        filePath: state.filePath,
+                        mode: state.mode,
+                        onLoadFull: { state.refresh(forceFull: true) },
+                        suppressLeadingTopBorder: true,
+                        onHunkCount: { hunkCount = $0 }
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .onChange(of: state.currentHunkIndex) { _, idx in
+                    proxy.scrollTo("diff-hunk-\(idx)", anchor: .top)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded { onFocus() })
+        .focusable()
+        .focused($paneFocused)
+        .onKeyPress(phases: .down) { press in
+            guard paneFocused else { return .ignored }
+            return handleDiffKeyPress(press)
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            paneFocused = true
+            onFocus()
+        })
+        .onAppear { if focused { paneFocused = true } }
+    }
+
+    private func handleDiffKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        let rawKey = String(press.key.character)
+        let normalizedKey = KeyCombo.normalized(key: rawKey)
+        var flags: UInt = 0
+        if press.modifiers.contains(.command) { flags |= NSEvent.ModifierFlags.command.rawValue }
+        if press.modifiers.contains(.shift) { flags |= NSEvent.ModifierFlags.shift.rawValue }
+        if press.modifiers.contains(.control) { flags |= NSEvent.ModifierFlags.control.rawValue }
+        if press.modifiers.contains(.option) { flags |= NSEvent.ModifierFlags.option.rawValue }
+        let combo = KeyCombo(key: normalizedKey, modifiers: flags)
+        guard let action = KeyBindingStore.shared.action(for: combo, scopes: [.vcsPanel]) else {
+            return .ignored
+        }
+        switch action {
+        case .vcsNextHunk:
+            state.navigateToHunk(delta: 1, hunkCount: hunkCount)
+            return .handled
+        case .vcsPrevHunk:
+            state.navigateToHunk(delta: -1, hunkCount: hunkCount)
+            return .handled
+        default:
+            return .ignored
+        }
     }
 }
 

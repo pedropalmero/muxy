@@ -64,6 +64,27 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case navigateForward
     case toggleMaximizePane
     case toggleVoiceRecording
+    case vcsNextRow
+    case vcsPrevRow
+    case vcsNextSection
+    case vcsPrevSection
+    case vcsActivateRow
+    case vcsToggleExpand
+    case vcsStageSelected
+    case vcsUnstageSelected
+    case vcsDiscardSelected
+    case vcsOpenInEditor
+    case vcsOpenDiffInTab
+    case vcsFocusCommitMessage
+    case vcsRefresh
+    case vcsPush
+    case vcsPull
+    case vcsBranchPicker
+    case vcsNewBranch
+    case vcsCreatePR
+    case vcsNextHunk
+    case vcsPrevHunk
+    case vcsCopyLineRef
 
     static let allCases: [Self] = [
         .newTab,
@@ -121,6 +142,28 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .navigateForward,
         .toggleMaximizePane,
         .toggleVoiceRecording,
+        .vcsNextRow,
+        .vcsPrevRow,
+        .vcsNextSection,
+        .vcsPrevSection,
+        .vcsActivateRow,
+        .vcsToggleExpand,
+        .vcsStageSelected,
+        .vcsUnstageSelected,
+        .vcsDiscardSelected,
+        .vcsOpenInEditor,
+        .vcsOpenDiffInTab,
+        .vcsFocusCommitMessage,
+        .vcsRefresh,
+        .vcsPush,
+        .vcsPull,
+        .vcsBranchPicker,
+        .vcsNewBranch,
+        .vcsCreatePR,
+        .vcsNextHunk,
+        .vcsPrevHunk,
+        .vcsCopyLineRef,
+>>>>>>> 473f8b7 (Add keyboard navigation support for source control panel)
     ]
 
     var id: String { rawValue }
@@ -203,6 +246,27 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
+        case .vcsNextRow: ShortcutMetadata(displayName: "Next Row", category: "Source Control", scope: .vcsPanel)
+        case .vcsPrevRow: ShortcutMetadata(displayName: "Previous Row", category: "Source Control", scope: .vcsPanel)
+        case .vcsNextSection: ShortcutMetadata(displayName: "Next Section", category: "Source Control", scope: .vcsPanel)
+        case .vcsPrevSection: ShortcutMetadata(displayName: "Previous Section", category: "Source Control", scope: .vcsPanel)
+        case .vcsActivateRow: ShortcutMetadata(displayName: "Activate Row", category: "Source Control", scope: .vcsPanel)
+        case .vcsToggleExpand: ShortcutMetadata(displayName: "Toggle Expand", category: "Source Control", scope: .vcsPanel)
+        case .vcsStageSelected: ShortcutMetadata(displayName: "Stage Selected", category: "Source Control", scope: .vcsPanel)
+        case .vcsUnstageSelected: ShortcutMetadata(displayName: "Unstage Selected", category: "Source Control", scope: .vcsPanel)
+        case .vcsDiscardSelected: ShortcutMetadata(displayName: "Discard Selected", category: "Source Control", scope: .vcsPanel)
+        case .vcsOpenInEditor: ShortcutMetadata(displayName: "Open in Editor", category: "Source Control", scope: .vcsPanel)
+        case .vcsOpenDiffInTab: ShortcutMetadata(displayName: "Open Diff in Tab", category: "Source Control", scope: .vcsPanel)
+        case .vcsFocusCommitMessage: ShortcutMetadata(displayName: "Focus Commit Message", category: "Source Control", scope: .vcsPanel)
+        case .vcsRefresh: ShortcutMetadata(displayName: "Refresh", category: "Source Control", scope: .vcsPanel)
+        case .vcsPush: ShortcutMetadata(displayName: "Push", category: "Source Control", scope: .vcsPanel)
+        case .vcsPull: ShortcutMetadata(displayName: "Pull", category: "Source Control", scope: .vcsPanel)
+        case .vcsBranchPicker: ShortcutMetadata(displayName: "Open Branch Picker", category: "Source Control", scope: .vcsPanel)
+        case .vcsNewBranch: ShortcutMetadata(displayName: "New Branch", category: "Source Control", scope: .vcsPanel)
+        case .vcsCreatePR: ShortcutMetadata(displayName: "Create Pull Request", category: "Source Control", scope: .vcsPanel)
+        case .vcsNextHunk: ShortcutMetadata(displayName: "Next Hunk", category: "Source Control", scope: .vcsPanel)
+        case .vcsPrevHunk: ShortcutMetadata(displayName: "Previous Hunk", category: "Source Control", scope: .vcsPanel)
+        case .vcsCopyLineRef: ShortcutMetadata(displayName: "Copy Line Reference", category: "Source Control", scope: .vcsPanel)
         }
     }
 
@@ -211,7 +275,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App", "Source Control"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -263,11 +327,49 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct KeyBinding: Codable, Identifiable {
+struct KeyBinding: Identifiable {
     let action: ShortcutAction
-    var combo: KeyCombo
+    var combos: [KeyCombo]
+
+    var combo: KeyCombo { combos.first ?? KeyCombo(key: "", modifiers: 0) }
 
     var id: String { action.rawValue }
+
+    init(action: ShortcutAction, combo: KeyCombo) {
+        self.action = action
+        self.combos = [combo]
+    }
+
+    init(action: ShortcutAction, combos: [KeyCombo]) {
+        self.action = action
+        self.combos = combos
+    }
+}
+
+extension KeyBinding: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case action
+        case combos
+        case combo
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        action = try container.decode(ShortcutAction.self, forKey: .action)
+        if let decoded = try? container.decode([KeyCombo].self, forKey: .combos) {
+            combos = decoded
+        } else if let single = try? container.decode(KeyCombo.self, forKey: .combo) {
+            combos = [single]
+        } else {
+            combos = []
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(action, forKey: .action)
+        try container.encode(combos, forKey: .combos)
+    }
 
     static let defaults: [Self] = [
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
@@ -325,5 +427,26 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
         Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
+        Self(action: .vcsNextRow, combos: [KeyCombo(key: "j"), KeyCombo(key: KeyCombo.downArrowKey)]),
+        Self(action: .vcsPrevRow, combos: [KeyCombo(key: "k"), KeyCombo(key: KeyCombo.upArrowKey)]),
+        Self(action: .vcsNextSection, combos: [KeyCombo(key: "\t"), KeyCombo(key: KeyCombo.downArrowKey, option: true)]),
+        Self(action: .vcsPrevSection, combos: [KeyCombo(key: "\t", shift: true), KeyCombo(key: KeyCombo.upArrowKey, option: true)]),
+        Self(action: .vcsActivateRow, combo: KeyCombo(key: "\r")),
+        Self(action: .vcsToggleExpand, combo: KeyCombo(key: " ")),
+        Self(action: .vcsStageSelected, combos: [KeyCombo(key: "s"), KeyCombo(key: "s", command: true, shift: true)]),
+        Self(action: .vcsUnstageSelected, combos: [KeyCombo(key: "u"), KeyCombo(key: "u", command: true, shift: true)]),
+        Self(action: .vcsDiscardSelected, combos: [KeyCombo(key: "d"), KeyCombo(key: "\u{7F}", command: true)]),
+        Self(action: .vcsOpenInEditor, combo: KeyCombo(key: "o")),
+        Self(action: .vcsOpenDiffInTab, combo: KeyCombo(key: "o", shift: true)),
+        Self(action: .vcsFocusCommitMessage, combo: KeyCombo(key: "c")),
+        Self(action: .vcsRefresh, combo: KeyCombo(key: "r")),
+        Self(action: .vcsPush, combo: KeyCombo(key: "p", shift: true)),
+        Self(action: .vcsPull, combo: KeyCombo(key: "l", shift: true)),
+        Self(action: .vcsBranchPicker, combo: KeyCombo(key: "b")),
+        Self(action: .vcsNewBranch, combo: KeyCombo(key: "n", shift: true)),
+        Self(action: .vcsCreatePR, combo: KeyCombo(key: "n", command: true, shift: true)),
+        Self(action: .vcsNextHunk, combos: [KeyCombo(key: "]"), KeyCombo(key: "]", option: true)]),
+        Self(action: .vcsPrevHunk, combos: [KeyCombo(key: "["), KeyCombo(key: "[", option: true)]),
+        Self(action: .vcsCopyLineRef, combo: KeyCombo(key: "y")),
     ]
 }

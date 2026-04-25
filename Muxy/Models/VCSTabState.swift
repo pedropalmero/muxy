@@ -68,7 +68,10 @@ final class VCSTabState {
     }
 
     let projectPath: String
-    var files: [GitStatusFile] = []
+    var files: [GitStatusFile] = [] {
+        didSet { if !files.isEmpty { bootstrapFocusIfNeeded() } }
+    }
+
     var mode: ViewMode = .unified
     var fileListMode: FileListMode = .flat {
         didSet {
@@ -153,6 +156,23 @@ final class VCSTabState {
     var pullRequestStateFilter: GitRepositoryService.PRListFilter = .open
     var pullRequestAutoSyncMinutes: Int = 0
     var checkingOutPRNumber: Int?
+
+    enum Section: Equatable, Hashable {
+        case staged
+        case changes
+        case pullRequests
+        case history
+    }
+
+    enum Focus: Equatable {
+        case section(Section)
+        case file(section: Section, path: String)
+        case commit(hash: String)
+        case pullRequest(number: Int)
+    }
+
+    var focus: Focus?
+    private var needsInitialFocus = true
 
     var stagedFiles: [GitStatusFile] {
         files.filter(\.isStaged)
@@ -468,6 +488,204 @@ final class VCSTabState {
     func collapseAll() {
         expandedFilePaths.removeAll()
         diffCache.collapseAll()
+    }
+
+    var visibleSections: [Section] {
+        var result: [Section] = []
+        if !stagedFiles.isEmpty { result.append(.staged) }
+        if changesVisible { result.append(.changes) }
+        if pullRequestsVisible { result.append(.pullRequests) }
+        if historyVisible { result.append(.history) }
+        return result
+    }
+
+    func rows(for section: Section) -> [Focus] {
+        switch section {
+        case .staged:
+            stagedFiles.map { .file(section: .staged, path: $0.path) }
+        case .changes:
+            unstagedFiles.map { .file(section: .changes, path: $0.path) }
+        case .pullRequests:
+            filteredPullRequests.map { .pullRequest(number: $0.number) }
+        case .history:
+            commits.map { .commit(hash: $0.id) }
+        }
+    }
+
+    func selectFirstRow() {
+        guard let section = visibleSections.first else {
+            focus = nil
+            return
+        }
+        focus = .section(section)
+    }
+
+    func bootstrapFocusIfNeeded() {
+        guard needsInitialFocus, focus == nil else { return }
+        guard let section = visibleSections.first else { return }
+        focus = .section(section)
+        needsInitialFocus = false
+    }
+
+    func selectNextRow() {
+        guard let current = focus else {
+            selectFirstRow()
+            return
+        }
+        let sections = visibleSections
+        if case let .section(s) = current {
+            if !isSectionCollapsed(s), let first = rows(for: s).first {
+                focus = first
+            } else if let idx = sections.firstIndex(of: s), idx + 1 < sections.count {
+                focus = .section(sections[idx + 1])
+            }
+            return
+        }
+        guard let (section, index) = sectionAndIndex(for: current) else { return }
+        let sectionRows = rows(for: section)
+        if index + 1 < sectionRows.count {
+            focus = sectionRows[index + 1]
+            return
+        }
+        guard let sectionIndex = sections.firstIndex(of: section),
+              sectionIndex + 1 < sections.count
+        else { return }
+        focus = .section(sections[sectionIndex + 1])
+    }
+
+    func selectPrevRow() {
+        guard let current = focus else {
+            selectFirstRow()
+            return
+        }
+        let sections = visibleSections
+        if case let .section(s) = current {
+            guard let idx = sections.firstIndex(of: s), idx > 0 else { return }
+            let prev = sections[idx - 1]
+            if !isSectionCollapsed(prev), let last = rows(for: prev).last {
+                focus = last
+            } else {
+                focus = .section(prev)
+            }
+            return
+        }
+        guard let (section, index) = sectionAndIndex(for: current) else { return }
+        if index > 0 {
+            focus = rows(for: section)[index - 1]
+            return
+        }
+        focus = .section(section)
+    }
+
+    func cycleSectionForward() {
+        let sections = visibleSections
+        guard !sections.isEmpty else { return }
+        guard let current = focus.flatMap({ focusSection($0) }),
+              let idx = sections.firstIndex(of: current)
+        else {
+            focus = .section(sections[0])
+            return
+        }
+        focus = .section(sections[(idx + 1) % sections.count])
+    }
+
+    func cycleSectionBackward() {
+        let sections = visibleSections
+        guard !sections.isEmpty else { return }
+        guard let current = focus.flatMap({ focusSection($0) }),
+              let idx = sections.firstIndex(of: current)
+        else {
+            focus = .section(sections[0])
+            return
+        }
+        focus = .section(sections[(idx - 1 + sections.count) % sections.count])
+    }
+
+    func stageFocused() {
+        guard case let .file(section, path) = focus, section == .changes else { return }
+        stageFile(path)
+    }
+
+    func unstageFocused() {
+        guard case let .file(section, path) = focus, section == .staged else { return }
+        unstageFile(path)
+    }
+
+    func discardFocusedPath() -> String? {
+        guard case let .file(section, path) = focus, section == .changes else { return nil }
+        return path
+    }
+
+    func openFocusedFilePath() -> String? {
+        guard case let .file(_, path) = focus else { return nil }
+        return path
+    }
+
+    func openFocusedDiffInfo() -> (path: String, isStaged: Bool)? {
+        guard case let .file(section, path) = focus else { return nil }
+        return (path, section == .staged)
+    }
+
+    func toggleFocusedExpand() {
+        switch focus {
+        case let .section(s):
+            toggleSectionCollapse(s)
+        case let .file(_, path):
+            toggleExpanded(filePath: path)
+        default:
+            break
+        }
+    }
+
+    func isSectionCollapsed(_ section: Section) -> Bool {
+        switch section {
+        case .staged: stagedCollapsed
+        case .changes: changesCollapsed
+        case .history: historyCollapsed
+        case .pullRequests: pullRequestsCollapsed
+        }
+    }
+
+    func toggleSectionCollapse(_ section: Section) {
+        switch section {
+        case .staged: stagedCollapsed.toggle()
+        case .changes: changesCollapsed.toggle()
+        case .history:
+            historyCollapsed.toggle()
+            if !historyCollapsed, commits.isEmpty { loadCommits() }
+        case .pullRequests: pullRequestsCollapsed.toggle()
+        }
+    }
+
+    func activateFocused() -> Focus? {
+        guard let current = focus else { return nil }
+        switch current {
+        case .section:
+            return current
+        case let .file(_, path):
+            toggleExpanded(filePath: path)
+            return nil
+        case let .commit(hash):
+            return .commit(hash: hash)
+        case let .pullRequest(number):
+            return .pullRequest(number: number)
+        }
+    }
+
+    private func focusSection(_ focus: Focus) -> Section? {
+        switch focus {
+        case let .section(s): s
+        case let .file(section, _): section
+        case .commit: .history
+        case .pullRequest: .pullRequests
+        }
+    }
+
+    private func sectionAndIndex(for target: Focus) -> (Section, Int)? {
+        guard let section = focusSection(target) else { return nil }
+        let sectionRows = rows(for: section)
+        guard let index = sectionRows.firstIndex(of: target) else { return nil }
+        return (section, index)
     }
 
     func expandAll() {

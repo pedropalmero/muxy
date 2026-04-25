@@ -194,7 +194,28 @@ struct ShortcutActionDispatcher {
              .selectProject6,
              .selectProject7,
              .selectProject8,
-             .selectProject9:
+             .selectProject9,
+             .vcsNextRow,
+             .vcsPrevRow,
+             .vcsNextSection,
+             .vcsPrevSection,
+             .vcsActivateRow,
+             .vcsToggleExpand,
+             .vcsStageSelected,
+             .vcsUnstageSelected,
+             .vcsDiscardSelected,
+             .vcsOpenInEditor,
+             .vcsOpenDiffInTab,
+             .vcsFocusCommitMessage,
+             .vcsRefresh,
+             .vcsPush,
+             .vcsPull,
+             .vcsBranchPicker,
+             .vcsNewBranch,
+             .vcsCreatePR,
+             .vcsNextHunk,
+             .vcsPrevHunk,
+             .vcsCopyLineRef:
             return false
         }
     }

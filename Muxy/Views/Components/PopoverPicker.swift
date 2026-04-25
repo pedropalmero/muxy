@@ -29,6 +29,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
     let emptyLabel: String
     let footerActions: [PopoverFooterAction]
     let fixedSize: Bool
+    var onEscape: () -> Void = {}
     let onSelect: (Item) -> Void
     @ViewBuilder let row: (Item, Bool) -> RowContent
 
@@ -39,6 +40,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         emptyLabel: String,
         footerActions: [PopoverFooterAction] = [],
         fixedSize: Bool = true,
+        onEscape: @escaping () -> Void = {},
         onSelect: @escaping (Item) -> Void,
         @ViewBuilder row: @escaping (Item, Bool) -> RowContent
     ) {
@@ -48,6 +50,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         self.emptyLabel = emptyLabel
         self.footerActions = footerActions
         self.fixedSize = fixedSize
+        self.onEscape = onEscape
         self.onSelect = onSelect
         self.row = row
     }
@@ -59,6 +62,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
                 filterKey: filterKey,
                 placeholder: searchPlaceholder,
                 emptyLabel: emptyLabel,
+                onEscape: onEscape,
                 onSelect: onSelect,
                 row: row
             )

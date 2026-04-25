@@ -6,6 +6,7 @@ enum ShortcutScope: String, Codable, CaseIterable {
     case global
     case mainWindow
     case richInput
+    case vcsPanel
 }
 
 struct KeyCombo: Codable, Equatable, Hashable {
@@ -164,6 +165,9 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case Self.downArrowKey: "↓"
         case Self.tabKey: "⇥"
         case Self.returnKey: "↩"
+        case "\r": "↵"
+        case " ": "Space"
+        case "\u{7F}": "⌫"
         default: key.uppercased()
         }
         parts += keyDisplay

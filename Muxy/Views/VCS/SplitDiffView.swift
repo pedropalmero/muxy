@@ -14,9 +14,21 @@ struct SplitDiffView: View {
         lineNumberWidth(for: maxLineNumber(in: rows))
     }
 
+    private var hunkChunkIndices: [Int: Int] {
+        var result: [Int: Int] = [:]
+        var hunkIdx = 0
+        for (chunkIdx, chunk) in chunks.enumerated() {
+            if case .divider = chunk {
+                result[chunkIdx] = hunkIdx
+                hunkIdx += 1
+            }
+        }
+        return result
+    }
+
     var body: some View {
-        _ = themeRevision
-        return VStack(spacing: 0) {
+        let indices = hunkChunkIndices
+        LazyVStack(spacing: 0) {
             ForEach(Array(chunks.enumerated()), id: \.offset) { index, chunk in
                 switch chunk {
                 case let .divider(text):
@@ -24,6 +36,7 @@ struct SplitDiffView: View {
                         text: text,
                         showsTopBorder: !(index == 0 && suppressLeadingTopBorder)
                     )
+                    .id("diff-hunk-\(indices[index] ?? 0)")
                 case let .codeBlock(leftRows, rightRows):
                     splitCodeBlock(leftRows: leftRows, rightRows: rightRows)
                 }

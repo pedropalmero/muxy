@@ -106,16 +106,24 @@ struct PullRequestsListView: View {
                 text: state.pullRequestSearchQuery.isEmpty ? "No pull requests" : "No matches"
             )
         } else {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(state.filteredPullRequests) { pr in
-                        PullRequestRow(
-                            pr: pr,
-                            isCheckingOut: state.checkingOutPRNumber == pr.number,
-                            onCheckout: { onCheckout(pr) }
-                        )
-                        Rectangle().fill(MuxyTheme.border).frame(height: 1)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(state.filteredPullRequests) { pr in
+                            PullRequestRow(
+                                pr: pr,
+                                isSelected: state.focus == .pullRequest(number: pr.number),
+                                isCheckingOut: state.checkingOutPRNumber == pr.number,
+                                onCheckout: { onCheckout(pr) }
+                            )
+                            .id("pr-\(pr.number)")
+                            Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                        }
                     }
+                }
+                .onChange(of: state.focus) { _, focus in
+                    guard case let .pullRequest(number) = focus else { return }
+                    proxy.scrollTo("pr-\(number)", anchor: .center)
                 }
             }
         }
@@ -163,6 +171,7 @@ struct PullRequestsListView: View {
 
 struct PullRequestRow: View {
     let pr: GitRepositoryService.PRListItem
+    let isSelected: Bool
     let isCheckingOut: Bool
     let onCheckout: () -> Void
 
@@ -201,13 +210,13 @@ struct PullRequestRow: View {
             }
             Spacer(minLength: 0)
             checksBadge
-            if hovered || isCheckingOut {
+            if hovered || isSelected || isCheckingOut {
                 checkoutButton
             }
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .frame(height: UIMetrics.scaled(44))
-        .background(hovered ? MuxyTheme.surface : MuxyTheme.bg)
+        .background((hovered || isSelected) ? MuxyTheme.surface : MuxyTheme.bg)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture(perform: onCheckout)

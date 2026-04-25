@@ -14,8 +14,24 @@ struct VCSTabView: View {
     @State private var showCreateBranchSheet = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
+    @FocusState private var panelFocused: Bool
+    @FocusState private var commitMessageFocused: Bool
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var pullTooltip: String {
+        let key = KeyBindingStore.shared.combo(for: .vcsPull).displayString
+        let behind = state.aheadBehind.behind
+        let base = behind > 0 ? "Pull \(behind) commit\(behind == 1 ? "" : "s") from origin" : "Pull from origin"
+        return "\(base) (\(key))"
+    }
+
+    private var pushTooltip: String {
+        let key = KeyBindingStore.shared.combo(for: .vcsPush).displayString
+        let ahead = state.aheadBehind.ahead
+        let base = ahead > 0 ? "Push \(ahead) commit\(ahead == 1 ? "" : "s") to origin" : "Push to origin"
+        return "\(base) (\(key))"
     }
 
     private var owningProject: Project? {
@@ -38,8 +54,21 @@ struct VCSTabView: View {
         }
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onFocus)
+        .focusable()
+        .focused($panelFocused)
+        .onKeyPress(phases: .down) { press in
+            guard !commitMessageFocused else { return .ignored }
+            return handleKeyPress(press)
+        }
+        .onTapGesture {
+            activatePanelFocus()
+            onFocus()
+        }
         .onAppear {
+            DispatchQueue.main.async {
+                activatePanelFocus()
+                state.bootstrapFocusIfNeeded()
+            }
             if !state.hasCompletedInitialLoad, !state.isLoadingFiles {
                 state.refresh()
             }
@@ -130,15 +159,18 @@ struct VCSTabView: View {
 
                 VCSSectionVisibilityMenu(state: state)
 
-                if state.isRefreshingPullRequest {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-                } else {
-                    IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
-                        state.refresh()
+                Group {
+                    if state.isRefreshingPullRequest {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                    } else {
+                        IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
+                            state.refresh()
+                        }
                     }
                 }
+                .help("Refresh (\(KeyBindingStore.shared.combo(for: .vcsRefresh).displayString))")
             }
         }
         .frame(height: UIMetrics.scaled(32))
@@ -579,12 +611,18 @@ struct VCSTabView: View {
                     .padding(.horizontal, UIMetrics.scaled(5))
                     .padding(.vertical, UIMetrics.scaled(9))
                     .frame(minHeight: 27, maxHeight: 50)
+                    .focused($commitMessageFocused)
                     .onKeyPress(.return, phases: .down) { keyPress in
                         if keyPress.modifiers.contains(.command) {
                             state.commit()
                             return .handled
                         }
                         return .ignored
+                    }
+                    .onKeyPress(.escape, phases: .down) { _ in
+                        commitMessageFocused = false
+                        panelFocused = true
+                        return .handled
                     }
 
                 HStack {
@@ -665,7 +703,7 @@ struct VCSTabView: View {
         }
         .buttonStyle(.plain)
         .disabled(!commitEnabled || state.isCommitting)
-        .help("Commit staged changes")
+        .help("Commit staged changes (⌘↵)")
     }
 
     private var pullButton: some View {
@@ -698,9 +736,7 @@ struct VCSTabView: View {
         }
         .buttonStyle(.plain)
         .disabled(state.isPulling)
-        .help(state.aheadBehind.behind > 0
-            ? "Pull \(state.aheadBehind.behind) commit\(state.aheadBehind.behind == 1 ? "" : "s") from origin"
-            : "Pull from origin")
+        .help(pullTooltip)
     }
 
     private var pushButton: some View {
@@ -733,9 +769,7 @@ struct VCSTabView: View {
         }
         .buttonStyle(.plain)
         .disabled(state.isPushing)
-        .help(state.aheadBehind.ahead > 0
-            ? "Push \(state.aheadBehind.ahead) commit\(state.aheadBehind.ahead == 1 ? "" : "s") to origin"
-            : "Push to origin")
+        .help(pushTooltip)
     }
 
     @MainActor private static var actionButtonHeight: CGFloat { UIMetrics.scaled(28) }
@@ -849,6 +883,96 @@ struct VCSTabView: View {
     private func openDiffInTab(_ relativePath: String, isStaged: Bool) {
         guard let projectID = appState.activeProjectID else { return }
         appState.openDiffViewer(vcs: state, filePath: relativePath, isStaged: isStaged, projectID: projectID)
+    }
+
+    private func activatePanelFocus() {
+        panelFocused = true
+    }
+
+    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        let rawKey = String(press.key.character)
+        let normalizedKey = KeyCombo.normalized(key: rawKey)
+        var flags: UInt = 0
+        if press.modifiers.contains(.command) { flags |= NSEvent.ModifierFlags.command.rawValue }
+        if press.modifiers.contains(.shift) { flags |= NSEvent.ModifierFlags.shift.rawValue }
+        if press.modifiers.contains(.control) { flags |= NSEvent.ModifierFlags.control.rawValue }
+        if press.modifiers.contains(.option) { flags |= NSEvent.ModifierFlags.option.rawValue }
+        let combo = KeyCombo(key: normalizedKey, modifiers: flags)
+        guard let action = KeyBindingStore.shared.action(for: combo, scopes: [.vcsPanel]) else {
+            return .ignored
+        }
+        return handleVCSAction(action) ? .handled : .ignored
+    }
+
+    @discardableResult
+    private func handleVCSAction(_ action: ShortcutAction) -> Bool {
+        switch action {
+        case .vcsNextRow:
+            state.selectNextRow()
+            return true
+        case .vcsPrevRow:
+            state.selectPrevRow()
+            return true
+        case .vcsNextSection:
+            state.cycleSectionForward()
+            return true
+        case .vcsPrevSection:
+            state.cycleSectionBackward()
+            return true
+        case .vcsActivateRow:
+            if case let .section(s) = state.focus {
+                let wasCollapsed = state.isSectionCollapsed(s)
+                state.toggleSectionCollapse(s)
+                if wasCollapsed { state.selectNextRow() }
+            } else {
+                state.toggleFocusedExpand()
+            }
+            return true
+        case .vcsToggleExpand:
+            state.toggleFocusedExpand()
+            return true
+        case .vcsStageSelected:
+            state.stageFocused()
+            return true
+        case .vcsUnstageSelected:
+            state.unstageFocused()
+            return true
+        case .vcsDiscardSelected:
+            guard let path = state.discardFocusedPath() else { return false }
+            pendingDiscardPath = path
+            return true
+        case .vcsOpenInEditor:
+            guard let path = state.openFocusedFilePath() else { return false }
+            openFileInEditor(path)
+            return true
+        case .vcsOpenDiffInTab:
+            guard let info = state.openFocusedDiffInfo() else { return false }
+            openDiffInTab(info.path, isStaged: info.isStaged)
+            return true
+        case .vcsFocusCommitMessage:
+            panelFocused = false
+            commitMessageFocused = true
+            return true
+        case .vcsRefresh:
+            state.refresh()
+            return true
+        case .vcsPush:
+            state.push()
+            return true
+        case .vcsPull:
+            state.pull()
+            return true
+        case .vcsBranchPicker:
+            return false
+        case .vcsNewBranch:
+            showCreateBranchSheet = true
+            return true
+        case .vcsCreatePR:
+            requestOpenPR()
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -1532,11 +1656,17 @@ private struct SectionSplitLayout: View {
         case .staged:
             VStack(spacing: 0) {
                 sectionHeader(for: .staged, collapsed: false)
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        fileList(for: state.stagedFiles, isStaged: true)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            fileList(for: state.stagedFiles, isStaged: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: state.focus) { _, focus in
+                        guard case let .file(section, path) = focus, section == .staged else { return }
+                        proxy.scrollTo("file-\(section)-\(path)", anchor: .center)
+                    }
                 }
             }
             .frame(height: height)
@@ -1550,11 +1680,17 @@ private struct SectionSplitLayout: View {
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            fileList(for: state.unstagedFiles, isStaged: false)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                fileList(for: state.unstagedFiles, isStaged: false)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onChange(of: state.focus) { _, focus in
+                            guard case let .file(section, path) = focus, section == .changes else { return }
+                            proxy.scrollTo("file-\(section)-\(path)", anchor: .center)
+                        }
                     }
                 }
             }
@@ -1579,8 +1715,18 @@ private struct SectionSplitLayout: View {
         }
     }
 
+    private func stateSection(for kind: SectionKind) -> VCSTabState.Section {
+        switch kind {
+        case .staged: .staged
+        case .changes: .changes
+        case .history: .history
+        case .pullRequests: .pullRequests
+        }
+    }
+
     private func sectionHeader(for section: SectionKind, collapsed: Bool) -> some View {
         let isCollapsedState = collapsed
+        let isSelected = state.focus == .section(stateSection(for: section))
 
         return HStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
@@ -1595,7 +1741,7 @@ private struct SectionSplitLayout: View {
 
                         Text(section.title)
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                            .foregroundStyle(MuxyTheme.fgMuted)
+                            .foregroundStyle(isSelected ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     }
                 }
                 .buttonStyle(.plain)
@@ -1616,7 +1762,11 @@ private struct SectionSplitLayout: View {
             }
         }
         .frame(height: Self.sectionHeaderHeight)
-        .background(MuxyTheme.bg)
+        .background(isSelected ? MuxyTheme.hover : MuxyTheme.bg)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            state.focus = .section(stateSection(for: section))
+        }
     }
 
     private func sectionCount(for section: SectionKind) -> Int {
@@ -1638,7 +1788,7 @@ private struct SectionSplitLayout: View {
             IconButton(symbol: "minus", accessibilityLabel: "Unstage All") {
                 state.unstageAll()
             }
-            .help("Unstage all")
+            .help("Unstage all (\(KeyBindingStore.shared.combo(for: .vcsUnstageSelected).displayString))")
 
         case .changes:
             fileListModeToggle
@@ -1647,12 +1797,12 @@ private struct SectionSplitLayout: View {
             IconButton(symbol: "plus", accessibilityLabel: "Stage All") {
                 state.stageAll()
             }
-            .help("Stage all")
+            .help("Stage all (\(KeyBindingStore.shared.combo(for: .vcsStageSelected).displayString))")
 
             IconButton(symbol: "arrow.uturn.backward", accessibilityLabel: "Discard All Changes") {
                 showDiscardAllConfirmation = true
             }
-            .help("Discard all changes")
+            .help("Discard all changes (\(KeyBindingStore.shared.combo(for: .vcsDiscardSelected).displayString))")
 
         case .history:
             IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh History") {
@@ -1768,6 +1918,8 @@ private struct SectionSplitLayout: View {
         let expanded = state.expandedFilePaths.contains(file.path)
         let stats = state.displayedStats(for: file)
         let statusText = isStaged ? file.stagedStatusText : file.unstagedStatusText
+        let section: VCSTabState.Section = isStaged ? .staged : .changes
+        let isSelected = state.focus == .file(section: section, path: file.path)
 
         return VStack(spacing: 0) {
             FileRow(
@@ -1778,8 +1930,10 @@ private struct SectionSplitLayout: View {
                 isStaged: isStaged,
                 displayPath: displayPath ?? file.path,
                 depth: depth,
+                isSelected: isSelected,
                 onToggle: {
                     onFocus()
+                    state.focus = .file(section: section, path: file.path)
                     state.toggleExpanded(filePath: file.path)
                 },
                 onStage: { state.stageFile(file.path) },
@@ -1788,6 +1942,7 @@ private struct SectionSplitLayout: View {
                 onOpenInEditor: { onOpenInEditor(file.path) },
                 onOpenDiff: { onOpenDiff(file.path, isStaged) }
             )
+            .id("file-\(section)-\(file.path)")
 
             if expanded {
                 expandedDiff(for: file)
@@ -1840,6 +1995,7 @@ private struct FileRow: View {
     let isStaged: Bool
     let displayPath: String
     let depth: Int
+    let isSelected: Bool
     let onToggle: () -> Void
     let onStage: () -> Void
     let onUnstage: () -> Void
@@ -1888,7 +2044,7 @@ private struct FileRow: View {
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if hovered {
+            if hovered || isSelected {
                 actionButtons
             }
 
@@ -1912,7 +2068,7 @@ private struct FileRow: View {
         .padding(.leading, UIMetrics.spacing5 + CGFloat(depth) * UIMetrics.iconMD)
         .padding(.trailing, UIMetrics.spacing5)
         .frame(height: UIMetrics.scaled(34))
-        .background(MuxyTheme.bg)
+        .background(isSelected ? MuxyTheme.hover : MuxyTheme.bg)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture(perform: onToggle)
@@ -1921,17 +2077,17 @@ private struct FileRow: View {
     private var actionButtons: some View {
         HStack(spacing: 0) {
             IconButton(symbol: "doc.text", size: 11, accessibilityLabel: "Open in Editor", action: onOpenInEditor)
-                .help("Open in Editor")
+                .help("Open in Editor (\(KeyBindingStore.shared.combo(for: .vcsOpenInEditor).displayString))")
             IconButton(symbol: "rectangle.split.2x1", size: 11, accessibilityLabel: "Open Diff in New Tab", action: onOpenDiff)
-                .help("Open Diff in New Tab")
+                .help("Open Diff in New Tab (\(KeyBindingStore.shared.combo(for: .vcsOpenDiffInTab).displayString))")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage", action: onUnstage)
-                    .help("Unstage")
+                    .help("Unstage (\(KeyBindingStore.shared.combo(for: .vcsUnstageSelected).displayString))")
             } else {
                 IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage", action: onStage)
-                    .help("Stage")
+                    .help("Stage (\(KeyBindingStore.shared.combo(for: .vcsStageSelected).displayString))")
                 IconButton(symbol: "arrow.uturn.backward", size: 11, accessibilityLabel: "Discard Changes", action: onDiscard)
-                    .help("Discard changes")
+                    .help("Discard changes (\(KeyBindingStore.shared.combo(for: .vcsDiscardSelected).displayString))")
             }
         }
     }

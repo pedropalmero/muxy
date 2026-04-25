@@ -9,9 +9,15 @@ final class DiffViewerTabState: Identifiable {
     let isStaged: Bool
     let projectPath: String
     var mode: VCSTabState.ViewMode
+    var currentHunkIndex: Int = 0
 
     var displayTitle: String {
         (filePath as NSString).lastPathComponent
+    }
+
+    func navigateToHunk(delta: Int, hunkCount: Int) {
+        guard hunkCount > 0 else { return }
+        currentHunkIndex = (currentHunkIndex + delta + hunkCount) % hunkCount
     }
 
     init(vcs: VCSTabState, filePath: String, isStaged: Bool) {

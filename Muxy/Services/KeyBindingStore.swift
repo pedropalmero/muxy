@@ -28,7 +28,11 @@ final class KeyBindingStore {
 
     func updateBinding(action: ShortcutAction, combo: KeyCombo) {
         guard let index = bindings.firstIndex(where: { $0.action == action }) else { return }
-        bindings[index].combo = combo
+        if bindings[index].combos.isEmpty {
+            bindings[index].combos = [combo]
+        } else {
+            bindings[index].combos[0] = combo
+        }
         save()
     }
 
@@ -54,8 +58,14 @@ final class KeyBindingStore {
         let flags = event.modifierFlags.intersection(KeyCombo.supportedModifierMask).rawValue
         return ShortcutAction.allCases.first { action in
             guard scopes.contains(action.scope) else { return false }
-            let combo = combo(for: action)
-            return combo.key == normalizedKey && combo.modifiers == flags
+            return binding(for: action).combos.contains { $0.key == normalizedKey && $0.modifiers == flags }
+        }
+    }
+
+    func action(for combo: KeyCombo, scopes: Set<ShortcutScope>) -> ShortcutAction? {
+        ShortcutAction.allCases.first { action in
+            guard scopes.contains(action.scope) else { return false }
+            return binding(for: action).combos.contains { $0.key == combo.key && $0.modifiers == combo.modifiers }
         }
     }
 
@@ -65,10 +75,11 @@ final class KeyBindingStore {
 
     func conflictingAction(for combo: KeyCombo, excluding: ShortcutAction?) -> ShortcutAction? {
         bindings.first { binding in
+            guard binding.combos.contains(where: { $0 == combo }) else { return false }
             if let excluding {
-                return binding.combo == combo && binding.action != excluding
+                return binding.action != excluding
             }
-            return binding.combo == combo
+            return true
         }?.action
     }
 

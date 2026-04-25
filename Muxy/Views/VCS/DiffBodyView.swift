@@ -8,6 +8,7 @@ struct DiffBodyView: View {
     let mode: VCSTabState.ViewMode
     let onLoadFull: (() -> Void)?
     var suppressLeadingTopBorder: Bool = false
+    var onHunkCount: ((Int) -> Void)?
 
     var body: some View {
         Group {
@@ -22,6 +23,7 @@ struct DiffBodyView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(UIMetrics.spacing6)
             } else if let diff {
+                let hunkCount = countHunks(in: diff.rows)
                 VStack(spacing: 0) {
                     if diff.truncated, let onLoadFull {
                         truncatedBanner(onLoadFull: onLoadFull)
@@ -43,6 +45,8 @@ struct DiffBodyView: View {
                         )
                     }
                 }
+                .onAppear { onHunkCount?(hunkCount) }
+                .onChange(of: hunkCount) { _, count in onHunkCount?(count) }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text("No diff output")
@@ -53,6 +57,13 @@ struct DiffBodyView: View {
             }
         }
         .background(MuxyTheme.bg)
+    }
+
+    private func countHunks(in rows: [DiffDisplayRow]) -> Int {
+        buildDiffChunks(from: rows).count(where: {
+            if case .divider = $0 { return true }
+            return false
+        })
     }
 
     private func truncatedBanner(onLoadFull: @escaping () -> Void) -> some View {

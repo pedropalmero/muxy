@@ -5,6 +5,7 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
     let filterKey: (Item) -> String
     let placeholder: String
     let emptyLabel: String
+    var onEscape: () -> Void = {}
     let onSelect: (Item) -> Void
     @ViewBuilder let row: (Item, Bool) -> RowContent
 
@@ -28,7 +29,7 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
                     placeholder: placeholder,
                     fontSize: UIMetrics.fontBody,
                     onSubmit: { confirmSelection() },
-                    onEscape: {},
+                    onEscape: onEscape,
                     onArrowUp: { moveHighlight(-1) },
                     onArrowDown: { moveHighlight(1) }
                 )
