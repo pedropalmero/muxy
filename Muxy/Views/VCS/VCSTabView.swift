@@ -116,6 +116,10 @@ struct VCSTabView: View {
             pendingCheckoutPR = nil
             presentCheckoutPRConfirmation(pr: pr)
         }
+        .onHover { hovering in
+            guard hovering, !commitMessageFocused else { return }
+            activatePanelFocus()
+        }
         .alert(
             "Error",
             isPresented: Binding(
@@ -944,10 +948,12 @@ struct VCSTabView: View {
         case .vcsOpenInEditor:
             guard let path = state.openFocusedFilePath() else { return false }
             openFileInEditor(path)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { activatePanelFocus() }
             return true
         case .vcsOpenDiffInTab:
             guard let info = state.openFocusedDiffInfo() else { return false }
             openDiffInTab(info.path, isStaged: info.isStaged)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { activatePanelFocus() }
             return true
         case .vcsFocusCommitMessage:
             panelFocused = false
