@@ -41,7 +41,7 @@ final class TabArea: Identifiable {
     }
 
     func snapshot() -> TabAreaSnapshot {
-        let persistedTabs = tabs.filter { $0.kind != .diffViewer }
+        let persistedTabs = tabs.filter { $0.kind != .diffViewer && $0.kind != .commitDiff }
         let activeIndex = persistedTabs.firstIndex(where: { $0.id == activeTabID })
         return TabAreaSnapshot(
             id: id,
@@ -123,6 +123,17 @@ final class TabArea: Identifiable {
             vcs: vcs,
             filePath: filePath,
             isStaged: isStaged
+        )))
+    }
+
+    func createCommitDiffViewerTab(commit: GitCommit, projectPath: String) {
+        if let existing = tabs.first(where: { $0.content.commitDiffState?.commit.hash == commit.hash }) {
+            selectTab(existing.id)
+            return
+        }
+        insertTab(TerminalTab(commitDiffState: CommitDiffViewerTabState(
+            commit: commit,
+            projectPath: projectPath
         )))
     }
 

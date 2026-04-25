@@ -210,6 +210,7 @@ final class VCSTabState {
         return true
     }
 
+    @ObservationIgnored var onOpenCommitDiff: ((GitCommit) -> Void)?
     @ObservationIgnored private let git = GitRepositoryService()
     @ObservationIgnored private var loadFilesTask: Task<Void, Never>?
     @ObservationIgnored private var branchTask: Task<Void, Never>?
@@ -632,9 +633,17 @@ final class VCSTabState {
             toggleSectionCollapse(s)
         case let .file(_, path):
             toggleExpanded(filePath: path)
+        case let .commit(hash):
+            openCommitDiff(hash: hash)
         default:
             break
         }
+    }
+
+    func openCommitDiff(hash: String) {
+        focus = .commit(hash: hash)
+        guard let commit = commits.first(where: { $0.hash == hash }) else { return }
+        onOpenCommitDiff?(commit)
     }
 
     func isSectionCollapsed(_ section: Section) -> Bool {

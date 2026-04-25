@@ -65,6 +65,7 @@ struct VCSTabView: View {
             onFocus()
         }
         .onAppear {
+            state.onOpenCommitDiff = { commit in openCommitDiffInTab(commit) }
             DispatchQueue.main.async {
                 activatePanelFocus()
                 state.bootstrapFocusIfNeeded()
@@ -547,7 +548,8 @@ struct VCSTabView: View {
                     pendingDiscardPath: $pendingDiscardPath,
                     pendingCheckoutPR: $pendingCheckoutPR,
                     onOpenInEditor: openFileInEditor,
-                    onOpenDiff: openDiffInTab
+                    onOpenDiff: openDiffInTab,
+                    onActivateCommit: openCommitDiffInTab
                 )
             }
         }
@@ -887,6 +889,11 @@ struct VCSTabView: View {
     private func openDiffInTab(_ relativePath: String, isStaged: Bool) {
         guard let projectID = appState.activeProjectID else { return }
         appState.openDiffViewer(vcs: state, filePath: relativePath, isStaged: isStaged, projectID: projectID)
+    }
+
+    private func openCommitDiffInTab(_ commit: GitCommit) {
+        guard let projectID = appState.activeProjectID else { return }
+        appState.openCommitDiff(commit: commit, projectPath: state.projectPath, projectID: projectID)
     }
 
     private func activatePanelFocus() {
@@ -1511,6 +1518,7 @@ private struct SectionSplitLayout: View {
     @Binding var pendingCheckoutPR: GitRepositoryService.PRListItem?
     let onOpenInEditor: (String) -> Void
     let onOpenDiff: (String, Bool) -> Void
+    let onActivateCommit: (GitCommit) -> Void
 
     @MainActor private static var sectionHeaderHeight: CGFloat { UIMetrics.scaled(30) }
 
@@ -1705,7 +1713,7 @@ private struct SectionSplitLayout: View {
         case .history:
             VStack(spacing: 0) {
                 sectionHeader(for: .history, collapsed: false)
-                CommitHistoryView(state: state)
+                CommitHistoryView(state: state, onActivate: onActivateCommit)
             }
             .frame(height: height)
 

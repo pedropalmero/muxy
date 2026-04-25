@@ -20,6 +20,11 @@ final class AppState {
         let isStaged: Bool
     }
 
+    struct CommitDiffViewerRequest {
+        let commit: GitCommit
+        let projectPath: String
+    }
+
     enum Action {
         case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
@@ -38,6 +43,7 @@ final class AppState {
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
+        case createCommitDiffViewerTab(projectID: UUID, areaID: UUID?, request: CommitDiffViewerRequest)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
@@ -393,6 +399,20 @@ final class AppState {
             projectID: projectID,
             areaID: nil,
             request: DiffViewerRequest(vcs: vcs, filePath: filePath, isStaged: isStaged)
+        ))
+    }
+
+    func openCommitDiff(commit: GitCommit, projectPath: String, projectID: UUID) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.commitDiffState?.commit.hash == commit.hash }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createCommitDiffViewerTab(
+            projectID: projectID,
+            areaID: nil,
+            request: CommitDiffViewerRequest(commit: commit, projectPath: projectPath)
         ))
     }
 

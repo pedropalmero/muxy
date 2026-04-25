@@ -1231,6 +1231,111 @@ struct GitRepositoryService {
         }
     }
 
+    func commitChangedFiles(repoPath: String, hash: String) async throws -> [CommitChangedFile] {
+        try validateHash(hash)
+
+        async let nameStatusTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "show", "--name-status", "--diff-filter=AMDRC", "--format=", hash]
+        )
+        async let numstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "show", "--numstat", "--diff-filter=AMDRC", "--format=", hash]
+        )
+
+        let nameStatusResult = try await nameStatusTask
+        let numstatResult = try await numstatTask
+
+        guard nameStatusResult.status == 0 else {
+            throw GitError.commandFailed(
+                nameStatusResult.stderr.isEmpty ? "Failed to load commit files." : nameStatusResult.stderr
+            )
+        }
+
+        let stats: [String: CommitFileStat] = numstatResult.status == 0 ? parseNumstatLines(numstatResult.stdout) : [:]
+        return parseNameStatus(nameStatusResult.stdout, stats: stats)
+    }
+
+    func commitFileDiff(repoPath: String, hash: String, filePath: String, lineLimit: Int? = nil) async throws -> PatchAndCompareResult {
+        try validateHash(hash)
+
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "show", "--no-color", "--no-ext-diff", "--format=", hash, "--", filePath],
+            lineLimit: lineLimit
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(
+                result.stderr.isEmpty ? "Failed to load diff for \(filePath)." : result.stderr
+            )
+        }
+        return await Self.parsePatchOffMain(result.stdout, truncated: result.truncated)
+    }
+
+    private struct CommitFileStat {
+        let additions: Int
+        let deletions: Int
+        let isBinary: Bool
+    }
+
+    private func parseNameStatus(_ output: String, stats: [String: CommitFileStat]) -> [CommitChangedFile] {
+        var files: [CommitChangedFile] = []
+        let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+        for line in lines {
+            let parts = line.components(separatedBy: "\t")
+            guard parts.count >= 2 else { continue }
+            let rawStatus = parts[0].trimmingCharacters(in: .whitespaces)
+            let status: CommitChangedFile.Status = switch rawStatus.prefix(1) {
+            case "A": .added
+            case "M": .modified
+            case "D": .deleted
+            case "R": .renamed
+            case "C": .copied
+            case "T": .typeChanged
+            default: .unknown
+            }
+            let path: String
+            let oldPath: String?
+            if status == .renamed || status == .copied, parts.count >= 3 {
+                oldPath = parts[1]
+                path = parts[2]
+            } else {
+                oldPath = nil
+                path = parts[1]
+            }
+            let stat = stats[path] ?? CommitFileStat(additions: 0, deletions: 0, isBinary: false)
+            files.append(CommitChangedFile(
+                path: path,
+                oldPath: oldPath,
+                status: status,
+                additions: stat.additions,
+                deletions: stat.deletions,
+                isBinary: stat.isBinary
+            ))
+        }
+        return files
+    }
+
+    private func parseNumstatLines(_ output: String) -> [String: CommitFileStat] {
+        var result: [String: CommitFileStat] = [:]
+        let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+        for line in lines {
+            let parts = line.components(separatedBy: "\t")
+            guard parts.count >= 3 else { continue }
+            let addStr = parts[0]
+            let delStr = parts[1]
+            let path = parts[2]
+            if addStr == "-" || delStr == "-" {
+                result[path] = CommitFileStat(additions: 0, deletions: 0, isBinary: true)
+            } else {
+                let adds = Int(addStr) ?? 0
+                let dels = Int(delStr) ?? 0
+                result[path] = CommitFileStat(additions: adds, deletions: dels, isBinary: false)
+            }
+        }
+        return result
+    }
+
     private static let hexCharacters = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
 
     private func validateHash(_ hash: String) throws {

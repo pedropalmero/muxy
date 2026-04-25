@@ -151,7 +151,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             appState.dispatch(.createVCSTab(projectID: projectID, areaID: areaID))
         case .editor:
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .diffViewer:
+        case .diffViewer,
+             .commitDiff:
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
         }
 

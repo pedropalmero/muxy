@@ -89,6 +89,39 @@ struct GitRef {
     let kind: Kind
 }
 
+struct CommitChangedFile: Identifiable {
+    enum Status {
+        case added
+        case modified
+        case deleted
+        case renamed
+        case copied
+        case typeChanged
+        case unknown
+    }
+
+    let path: String
+    let oldPath: String?
+    let status: Status
+    let additions: Int
+    let deletions: Int
+    let isBinary: Bool
+
+    var id: String { path }
+
+    var statusLabel: String {
+        switch status {
+        case .added: "A"
+        case .modified: "M"
+        case .deleted: "D"
+        case .renamed: "R"
+        case .copied: "C"
+        case .typeChanged: "T"
+        case .unknown: "?"
+        }
+    }
+}
+
 struct DiffDisplayRow: Identifiable {
     enum Kind {
         case hunk

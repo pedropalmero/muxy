@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CommitHistoryView: View {
     @Bindable var state: VCSTabState
+    let onActivate: (GitCommit) -> Void
     @State private var branchNameInput = ""
     @State private var tagNameInput = ""
     @State private var pendingBranchHash: String?
@@ -44,6 +45,10 @@ struct CommitHistoryView: View {
                     commit: commit,
                     currentBranch: state.branchName,
                     isSelected: state.focus == .commit(hash: commit.id),
+                    onActivate: {
+                        state.focus = .commit(hash: commit.hash)
+                        onActivate(commit)
+                    },
                     onCheckout: { state.switchBranch($0) },
                     onCheckoutDetached: { state.checkoutDetached($0) },
                     onCherryPick: { state.cherryPick($0) },
@@ -128,6 +133,7 @@ private struct CommitRow: View {
     let commit: GitCommit
     let currentBranch: String?
     let isSelected: Bool
+    let onActivate: () -> Void
     let onCheckout: (String) -> Void
     let onCheckoutDetached: (String) -> Void
     let onCherryPick: (String) -> Void
@@ -150,45 +156,48 @@ private struct CommitRow: View {
     }
 
     var body: some View {
-        HStack(spacing: UIMetrics.spacing4) {
-            commitDot
+        Button(action: onActivate) {
+            HStack(spacing: UIMetrics.spacing4) {
+                commitDot
 
-            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                Text(commit.subject)
-                    .font(.system(size: UIMetrics.fontBody, weight: .regular))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                HStack(spacing: UIMetrics.spacing3) {
-                    if !commit.refs.isEmpty {
-                        refBadges
-                    }
-
-                    Text(commit.authorName)
-                        .font(.system(size: UIMetrics.fontCaption))
-                        .foregroundStyle(MuxyTheme.fgDim)
+                VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                    Text(commit.subject)
+                        .font(.system(size: UIMetrics.fontBody, weight: .regular))
+                        .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
+                        .truncationMode(.tail)
 
-                    Text(relativeDate(commit.authorDate))
-                        .font(.system(size: UIMetrics.fontCaption))
+                    HStack(spacing: UIMetrics.spacing3) {
+                        if !commit.refs.isEmpty {
+                            refBadges
+                        }
+
+                        Text(commit.authorName)
+                            .font(.system(size: UIMetrics.fontCaption))
+                            .foregroundStyle(MuxyTheme.fgDim)
+                            .lineLimit(1)
+
+                        Text(relativeDate(commit.authorDate))
+                            .font(.system(size: UIMetrics.fontCaption))
+                            .foregroundStyle(MuxyTheme.fgDim)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                if hovered || isSelected {
+                    Text(commit.shortHash)
+                        .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fgDim)
+                        .padding(.trailing, UIMetrics.spacing1)
                 }
             }
-
-            Spacer(minLength: 0)
-
-            if hovered || isSelected {
-                Text(commit.shortHash)
-                    .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .padding(.trailing, UIMetrics.spacing1)
-            }
+            .padding(.horizontal, UIMetrics.spacing5)
+            .frame(height: UIMetrics.scaled(40))
+            .background((hovered || isSelected) ? MuxyTheme.hover : .clear)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, UIMetrics.spacing5)
-        .frame(height: UIMetrics.scaled(40))
-        .background((hovered || isSelected) ? MuxyTheme.hover : .clear)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .contextMenu { contextMenuItems }
         .accessibilityElement(children: .combine)
