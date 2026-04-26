@@ -3,8 +3,7 @@ import SwiftUI
 
 struct VCSTabView: View {
     @Bindable var state: VCSTabState
-    let focused: Bool
-    let onFocus: () -> Void
+    var focusBinding: FocusState<SidePanelFocus?>.Binding
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -14,7 +13,6 @@ struct VCSTabView: View {
     @State private var showCreateBranchSheet = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
-    @FocusState private var panelFocused: Bool
     @FocusState private var commitMessageFocused: Bool
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -55,19 +53,17 @@ struct VCSTabView: View {
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
         .focusable()
-        .focused($panelFocused)
+        .focused(focusBinding, equals: .vcs)
         .onKeyPress(phases: .down) { press in
             guard !commitMessageFocused else { return .ignored }
             return handleKeyPress(press)
         }
         .onTapGesture {
-            activatePanelFocus()
-            onFocus()
+            focusBinding.wrappedValue = .vcs
         }
         .onAppear {
             state.onOpenCommitDiff = { commit in openCommitDiffInTab(commit) }
             DispatchQueue.main.async {
-                activatePanelFocus()
                 state.bootstrapFocusIfNeeded()
             }
             if !state.hasCompletedInitialLoad, !state.isLoadingFiles {
@@ -119,7 +115,7 @@ struct VCSTabView: View {
         }
         .onHover { hovering in
             guard hovering, !commitMessageFocused else { return }
-            activatePanelFocus()
+            focusBinding.wrappedValue = .vcs
         }
         .alert(
             "Error",
@@ -543,7 +539,7 @@ struct VCSTabView: View {
                 }
                 SectionSplitLayout(
                     state: state,
-                    onFocus: onFocus,
+                    onFocus: { focusBinding.wrappedValue = .vcs },
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
                     pendingDiscardPath: $pendingDiscardPath,
                     pendingCheckoutPR: $pendingCheckoutPR,
@@ -628,7 +624,7 @@ struct VCSTabView: View {
                     }
                     .onKeyPress(.escape, phases: .down) { _ in
                         commitMessageFocused = false
-                        panelFocused = true
+                        focusBinding.wrappedValue = .vcs
                         return .handled
                     }
 
@@ -905,7 +901,7 @@ struct VCSTabView: View {
     }
 
     private func activatePanelFocus() {
-        panelFocused = true
+        focusBinding.wrappedValue = .vcs
     }
 
     private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
@@ -982,7 +978,7 @@ struct VCSTabView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { activatePanelFocus() }
             return true
         case .vcsFocusCommitMessage:
-            panelFocused = false
+            focusBinding.wrappedValue = nil
             commitMessageFocused = true
             return true
         case .vcsRefresh:

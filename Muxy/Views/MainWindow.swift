@@ -25,6 +25,8 @@ enum MainWindowLayout {
     }
 }
 
+enum SidePanelFocus: Hashable { case vcs, fileTree }
+
 struct MainWindow: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -86,6 +88,7 @@ struct MainWindow: View {
         }
     }
 
+    @FocusState private var sidePanelFocus: SidePanelFocus?
     @State private var vcsPanelVisible = false
     @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
     @State private var fileTreePanelVisible = false
@@ -970,8 +973,8 @@ struct MainWindow: View {
                         min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
                     )
                 }
-                VCSTabView(state: state, focused: false, onFocus: {})
-                    .frame(width: vcsPanelWidth)
+                VCSTabView(state: state, focusBinding: $sidePanelFocus)
+                    .frame(width: CGFloat(vcsPanelWidth))
             }
         } else if fileTreePanelVisible, let treeState = activeFileTreeState {
             HStack(spacing: 0) {
@@ -1004,6 +1007,9 @@ struct MainWindow: View {
                         appState.handleFileMoved(from: oldPath, to: newPath)
                     }
                 )
+                .focusable()
+                .focused($sidePanelFocus, equals: .fileTree)
+                .onTapGesture { sidePanelFocus = .fileTree }
                 .id(activeFileTreeIdentity)
                 .frame(width: CGFloat(fileTreePanelWidth))
             }
@@ -1104,18 +1110,23 @@ struct MainWindow: View {
 
     private func toggleAttachedVCSPanel() {
         guard VCSDisplayMode.current == .attached,
-              activeProject != nil
+              let project = activeProject
         else {
             vcsPanelVisible = false
             return
         }
-
-        let isShowing = !vcsPanelVisible
-        vcsPanelVisible = isShowing
-        if isShowing {
+        if !vcsPanelVisible {
             fileTreePanelVisible = false
             panelToRestoreAfterRichInput = nil
             closeRichInputPanel()
+            vcsPanelVisible = true
+            DispatchQueue.main.async { sidePanelFocus = .vcs }
+        } else if sidePanelFocus != .vcs {
+            sidePanelFocus = .vcs
+        } else {
+            vcsPanelVisible = false
+            sidePanelFocus = nil
+            restoreTerminalFocus()
         }
     }
 
@@ -1127,16 +1138,19 @@ struct MainWindow: View {
             }
             return
         }
-
         ensureFileTreeState(for: project)
-        let isShowing = !fileTreePanelVisible
-        fileTreePanelVisible = isShowing
-        if isShowing {
+        if !fileTreePanelVisible {
             vcsPanelVisible = false
             panelToRestoreAfterRichInput = nil
             closeRichInputPanel()
+            fileTreePanelVisible = true
+            DispatchQueue.main.async { sidePanelFocus = .fileTree }
+        } else if sidePanelFocus != .fileTree {
+            sidePanelFocus = .fileTree
         } else {
-            NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
+            fileTreePanelVisible = false
+            sidePanelFocus = nil
+            restoreTerminalFocus()
         }
     }
 
@@ -1231,6 +1245,14 @@ struct MainWindow: View {
               let root = appState.workspaceRoot(for: project.id)
         else { return [] }
         return root.allAreas().compactMap { $0.activeTab?.content.pane?.id }
+    }
+
+    private func restoreTerminalFocus() {
+        guard let projectID = appState.activeProjectID,
+              let paneID = appState.focusedArea(for: projectID)?.activeTab?.content.pane?.id,
+              let view = TerminalViewRegistry.shared.existingView(for: paneID)
+        else { return }
+        DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
     }
 
     private var activeVCSState: VCSTabState? {

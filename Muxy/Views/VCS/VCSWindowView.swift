@@ -5,6 +5,7 @@ struct VCSWindowView: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var activeState: VCSTabState?
+    @FocusState private var vcsFocus: SidePanelFocus?
 
     private var activeProject: Project? {
         guard let pid = appState.activeProjectID else { return nil }
@@ -14,7 +15,8 @@ struct VCSWindowView: View {
     var body: some View {
         Group {
             if let state = activeState {
-                VCSTabView(state: state, focused: true, onFocus: {})
+                VCSTabView(state: state, focusBinding: $vcsFocus)
+                    .onAppear { DispatchQueue.main.async { vcsFocus = .vcs } }
             } else {
                 Text("No project selected")
                     .font(.system(size: UIMetrics.fontEmphasis))

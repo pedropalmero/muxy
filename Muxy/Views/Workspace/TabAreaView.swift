@@ -208,6 +208,8 @@ private struct TabContentView: View {
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
+    @FocusState private var vcsFocus: SidePanelFocus?
+
     var body: some View {
         switch tab.content {
         case let .terminal(pane):
@@ -221,7 +223,8 @@ private struct TabContentView: View {
                 onSplitRequest: onSplitRequest
             )
         case let .vcs(vcsState):
-            VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
+            VCSTabView(state: vcsState, focusBinding: $vcsFocus)
+                .onChange(of: focused, initial: true) { if focused { vcsFocus = .vcs } }
         case let .editor(editorState):
             EditorPane(state: editorState, focused: focused, onFocus: onFocus)
         case let .diffViewer(diffState):
