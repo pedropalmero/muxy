@@ -16,6 +16,7 @@ extension Notification.Name {
     static let openProjectPicker = Notification.Name("MuxyOpenProjectPicker")
     static let focusProjectPickerDefaultLocation = Notification.Name("MuxyFocusProjectPickerDefaultLocation")
     static let saveActiveEditor = Notification.Name("MuxySaveActiveEditor")
+    static let openInExternalEditor = Notification.Name("MuxyOpenInExternalEditor")
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
     static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
     static let toggleNotificationPanel = Notification.Name("MuxyToggleNotificationPanel")

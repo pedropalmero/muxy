@@ -412,6 +412,12 @@ private struct EditorMarkdownModePicker: View {
 
 private struct EditorBreadcrumb: View {
     @Bindable var state: EditorTabState
+    @Environment(AppState.self) private var appState
+    @State private var editorSettings = EditorSettings.shared
+
+    private var externalEditorCommand: String {
+        editorSettings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private var relativePath: String {
         let full = state.filePath
@@ -443,6 +449,22 @@ private struct EditorBreadcrumb: View {
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .foregroundStyle(MuxyTheme.diffHunkFg)
             }
+            Button {
+                appState.openFileExternally(state.filePath)
+            } label: {
+                Image(systemName: "arrow.up.forward.app")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .frame(width: 22, height: 20)
+            .contentShape(Rectangle())
+            .disabled(externalEditorCommand.isEmpty)
+            .help(
+                externalEditorCommand.isEmpty
+                    ? "Configure an external editor in Settings → Editor"
+                    : "Open in External Editor (\(KeyBindingStore.shared.combo(for: .openInExternalEditor).displayString))"
+            )
+            .accessibilityLabel("Open in External Editor")
             Spacer()
             if state.isMarkdownFile {
                 EditorMarkdownModePicker(

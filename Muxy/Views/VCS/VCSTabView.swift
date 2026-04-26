@@ -888,11 +888,10 @@ struct VCSTabView: View {
     }
 
     private func openFileInExternalEditor(_ relativePath: String) {
-        guard let projectID = appState.activeProjectID else { return }
         let fullPath = state.projectPath.hasSuffix("/")
             ? state.projectPath + relativePath
             : state.projectPath + "/" + relativePath
-        appState.openFileExternally(fullPath, projectID: projectID)
+        appState.openFileExternally(fullPath)
     }
 
     private func openDiffInTab(_ relativePath: String, isStaged: Bool) {

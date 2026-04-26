@@ -156,6 +156,9 @@ struct ShortcutActionDispatcher {
         case .saveFile:
             notificationCenter.post(name: .saveActiveEditor, object: nil)
             return true
+        case .openInExternalEditor:
+            notificationCenter.post(name: .openInExternalEditor, object: nil)
+            return true
         case .toggleSidebar:
             notificationCenter.post(name: .toggleSidebar, object: nil)
             return true

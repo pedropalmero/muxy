@@ -164,7 +164,7 @@ struct MainWindow: View {
                     onSelect: { filePath, optionHeld in
                         showQuickOpen = false
                         if optionHeld {
-                            appState.openFileExternally(filePath, projectID: project.id)
+                            appState.openFileExternally(filePath)
                         } else {
                             appState.openFileInBuiltInEditor(filePath, projectID: project.id)
                         }
@@ -987,7 +987,7 @@ struct MainWindow: View {
                     onOpenFile: { filePath, optionHeld in
                         guard let projectID = appState.activeProjectID else { return }
                         if optionHeld {
-                            appState.openFileExternally(filePath, projectID: projectID)
+                            appState.openFileExternally(filePath)
                         } else {
                             appState.openFile(filePath, projectID: projectID, preserveFocus: true)
                         }

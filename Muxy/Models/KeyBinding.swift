@@ -58,6 +58,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case findInFiles
     case switchWorktree
     case saveFile
+    case openInExternalEditor
     case toggleSidebar
     case toggleFileTree
     case toggleAIUsage
@@ -140,6 +141,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .findInFiles,
         .switchWorktree,
         .saveFile,
+        .openInExternalEditor,
         .toggleSidebar,
         .toggleFileTree,
         .toggleAIUsage,
@@ -239,6 +241,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .findInFiles: ShortcutMetadata(displayName: "Find in Files", category: "App", scope: .mainWindow)
         case .switchWorktree: ShortcutMetadata(displayName: "Open Switcher", category: "Project Navigation", scope: .mainWindow)
         case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
+        case .openInExternalEditor: ShortcutMetadata(displayName: "Open in External Editor", category: "Editor", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleFileTree: ShortcutMetadata(displayName: "Toggle File Tree", category: "App", scope: .mainWindow)
         case .toggleAIUsage: ShortcutMetadata(displayName: "Toggle AI Usage", category: "App", scope: .mainWindow)
@@ -436,6 +439,7 @@ extension KeyBinding: Codable {
         Self(action: .findInFiles, combo: KeyCombo(key: "f", command: true, shift: true)),
         Self(action: .switchWorktree, combo: KeyCombo(key: "o", command: true, shift: true)),
         Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
+        Self(action: .openInExternalEditor, combo: KeyCombo(key: "e", command: true, shift: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleFileTree, combo: KeyCombo(key: "e", command: true)),
         Self(action: .toggleAIUsage, combo: KeyCombo(key: "l", command: true)),

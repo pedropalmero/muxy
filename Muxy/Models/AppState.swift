@@ -378,7 +378,7 @@ final class AppState {
         dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath, suppressInitialFocus: false))
     }
 
-    func openFileExternally(_ filePath: String, projectID _: UUID) {
+    func openFileExternally(_ filePath: String) {
         let command = EditorSettings.shared.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
         let escapedPath = "'" + filePath.replacingOccurrences(of: "'", with: "'\\''") + "'"

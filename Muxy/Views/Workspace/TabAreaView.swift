@@ -159,6 +159,14 @@ struct TabAreaView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openInExternalEditor)) { _ in
+            guard isFocused, isActiveProject else { return }
+            guard let tabID = area.activeTabID,
+                  let tab = area.tabs.first(where: { $0.id == tabID })
+            else { return }
+            guard let editorState = tab.content.editorState else { return }
+            appState.openFileExternally(editorState.filePath)
+        }
     }
 
     private func handleExternalDragHover(note: Notification) {
