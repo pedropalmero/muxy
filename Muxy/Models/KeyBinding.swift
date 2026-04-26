@@ -22,6 +22,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case focusPaneDown
     case cycleNextTabAcrossPanes
     case cyclePreviousTabAcrossPanes
+    case focusPreviousPane
     case nextTab
     case previousTab
     case toggleThemePicker
@@ -104,6 +105,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .focusPaneDown,
         .cycleNextTabAcrossPanes,
         .cyclePreviousTabAcrossPanes,
+        .focusPreviousPane,
         .nextTab,
         .previousTab,
         .toggleThemePicker,
@@ -201,6 +203,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 category: "Tab Navigation",
                 scope: .mainWindow
             )
+        case .focusPreviousPane: ShortcutMetadata(displayName: "Focus Previous Pane", category: "Panes", scope: .mainWindow)
         case .nextTab: ShortcutMetadata(displayName: "Next Tab", category: "Tab Navigation", scope: .mainWindow)
         case .previousTab: ShortcutMetadata(displayName: "Previous Tab", category: "Tab Navigation", scope: .mainWindow)
         case .selectTab1: ShortcutMetadata(displayName: "Tab 1", category: "Tab Navigation", scope: .mainWindow)
@@ -398,6 +401,7 @@ extension KeyBinding: Codable {
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
         Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
+        Self(action: .focusPreviousPane, combo: KeyCombo(key: "`", control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),

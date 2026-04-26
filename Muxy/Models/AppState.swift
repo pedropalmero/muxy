@@ -58,6 +58,7 @@ final class AppState {
         case focusPaneDown(projectID: UUID)
         case cycleNextTabAcrossPanes(projectID: UUID)
         case cyclePreviousTabAcrossPanes(projectID: UUID)
+        case focusPreviousPane(projectID: UUID)
         case moveTab(projectID: UUID, request: TabMoveRequest)
         case selectNextProject(projects: [Project], worktrees: [UUID: [Worktree]])
         case selectPreviousProject(projects: [Project], worktrees: [UUID: [Worktree]])
@@ -987,6 +988,10 @@ final class AppState {
 
     func cyclePreviousTabAcrossPanes(projectID: UUID) {
         dispatch(.cyclePreviousTabAcrossPanes(projectID: projectID))
+    }
+
+    func focusPreviousPane(projectID: UUID) {
+        dispatch(.focusPreviousPane(projectID: projectID))
     }
 
     func selectProjectByIndex(_ index: Int, projects: [Project], worktrees: [UUID: [Worktree]]) {

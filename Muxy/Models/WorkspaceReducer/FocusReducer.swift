@@ -58,6 +58,17 @@ enum FocusReducer {
         TabReducer.selectTab(projectID: projectID, areaID: next.areaID, tabID: next.tabID, state: &state)
     }
 
+    static func focusPreviousPane(projectID: UUID, state: inout WorkspaceState) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let root = state.workspaceRoots[key]
+        else { return }
+        let validIDs = Set(root.allAreas().map(\.id))
+        guard let previousID = state.focusHistory[key]?.last(where: { validIDs.contains($0) }),
+              previousID != state.focusedAreaID[key]
+        else { return }
+        focusArea(previousID, key: key, state: &state)
+    }
+
     static func popFocusHistory(key: WorktreeKey, validAreas: [TabArea], state: inout WorkspaceState) -> UUID? {
         let validIDs = Set(validAreas.map(\.id))
         while let last = state.focusHistory[key]?.popLast() {

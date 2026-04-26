@@ -98,6 +98,10 @@ struct ShortcutActionDispatcher {
             guard let projectID = appState.activeProjectID else { return false }
             appState.cyclePreviousTabAcrossPanes(projectID: projectID)
             return true
+        case .focusPreviousPane:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.focusPreviousPane(projectID: projectID)
+            return true
         case .nextTab:
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectNextTab(projectID: projectID)
