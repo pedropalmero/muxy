@@ -935,12 +935,18 @@ struct VCSTabView: View {
                 let wasCollapsed = state.isSectionCollapsed(s)
                 state.toggleSectionCollapse(s)
                 if wasCollapsed { state.selectNextRow() }
-            } else {
+            } else if !state.stageOrUnstageFocusedFile() {
                 state.toggleFocusedExpand()
             }
             return true
         case .vcsToggleExpand:
             state.toggleFocusedExpand()
+            return true
+        case .vcsCollapseOrParent:
+            state.collapseOrParent()
+            return true
+        case .vcsExpandOrChild:
+            state.expandOrFirstChild()
             return true
         case .vcsStageSelected:
             state.stageFocused()

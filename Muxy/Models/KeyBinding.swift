@@ -85,6 +85,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case vcsNextHunk
     case vcsPrevHunk
     case vcsCopyLineRef
+    case vcsCollapseOrParent
+    case vcsExpandOrChild
 
     static let allCases: [Self] = [
         .newTab,
@@ -163,7 +165,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .vcsNextHunk,
         .vcsPrevHunk,
         .vcsCopyLineRef,
->>>>>>> 473f8b7 (Add keyboard navigation support for source control panel)
+        .vcsCollapseOrParent,
+        .vcsExpandOrChild,
     ]
 
     var id: String { rawValue }
@@ -267,6 +270,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .vcsNextHunk: ShortcutMetadata(displayName: "Next Hunk", category: "Source Control", scope: .vcsPanel)
         case .vcsPrevHunk: ShortcutMetadata(displayName: "Previous Hunk", category: "Source Control", scope: .vcsPanel)
         case .vcsCopyLineRef: ShortcutMetadata(displayName: "Copy Line Reference", category: "Source Control", scope: .vcsPanel)
+        case .vcsCollapseOrParent: ShortcutMetadata(displayName: "Collapse / Parent", category: "Source Control", scope: .vcsPanel)
+        case .vcsExpandOrChild: ShortcutMetadata(displayName: "Expand / Child", category: "Source Control", scope: .vcsPanel)
         }
     }
 
@@ -448,5 +453,7 @@ extension KeyBinding: Codable {
         Self(action: .vcsNextHunk, combos: [KeyCombo(key: "]"), KeyCombo(key: "]", option: true)]),
         Self(action: .vcsPrevHunk, combos: [KeyCombo(key: "["), KeyCombo(key: "[", option: true)]),
         Self(action: .vcsCopyLineRef, combo: KeyCombo(key: "y")),
+        Self(action: .vcsCollapseOrParent, combo: KeyCombo(key: KeyCombo.leftArrowKey)),
+        Self(action: .vcsExpandOrChild, combo: KeyCombo(key: KeyCombo.rightArrowKey)),
     ]
 }

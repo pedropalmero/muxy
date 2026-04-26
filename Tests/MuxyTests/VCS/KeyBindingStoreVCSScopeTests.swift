@@ -66,10 +66,43 @@ struct KeyBindingStoreVCSScopeTests {
             .vcsDiscardSelected, .vcsOpenInEditor, .vcsOpenDiffInTab, .vcsFocusCommitMessage,
             .vcsRefresh, .vcsPush, .vcsPull, .vcsBranchPicker, .vcsNewBranch, .vcsCreatePR,
             .vcsNextHunk, .vcsPrevHunk, .vcsCopyLineRef,
+            .vcsCollapseOrParent, .vcsExpandOrChild,
         ]
         for action in vcsActions {
             #expect(action.scope == .vcsPanel, "Expected .vcsPanel scope for \(action)")
         }
+    }
+
+    @Test("vcsCollapseOrParent default combo is left arrow")
+    func vcsCollapseOrParentDefaultCombo() {
+        let store = KeyBindingStore(persistence: InMemoryKeyBindingPersistence())
+        let combo = store.combo(for: .vcsCollapseOrParent)
+        #expect(combo.key == KeyCombo.leftArrowKey)
+        #expect(combo.modifiers == 0)
+    }
+
+    @Test("vcsExpandOrChild default combo is right arrow")
+    func vcsExpandOrChildDefaultCombo() {
+        let store = KeyBindingStore(persistence: InMemoryKeyBindingPersistence())
+        let combo = store.combo(for: .vcsExpandOrChild)
+        #expect(combo.key == KeyCombo.rightArrowKey)
+        #expect(combo.modifiers == 0)
+    }
+
+    @Test("action(for combo:scopes:) finds vcsCollapseOrParent with left arrow in vcsPanel scope")
+    func actionForComboFindsCollapseOrParent() {
+        let store = KeyBindingStore(persistence: InMemoryKeyBindingPersistence())
+        let leftArrow = KeyCombo(key: KeyCombo.leftArrowKey)
+        let result = store.action(for: leftArrow, scopes: [.vcsPanel])
+        #expect(result == .vcsCollapseOrParent)
+    }
+
+    @Test("action(for combo:scopes:) finds vcsExpandOrChild with right arrow in vcsPanel scope")
+    func actionForComboFindsExpandOrChild() {
+        let store = KeyBindingStore(persistence: InMemoryKeyBindingPersistence())
+        let rightArrow = KeyCombo(key: KeyCombo.rightArrowKey)
+        let result = store.action(for: rightArrow, scopes: [.vcsPanel])
+        #expect(result == .vcsExpandOrChild)
     }
 
     @Test("VCS actions appear in Source Control category")

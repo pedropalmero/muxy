@@ -215,7 +215,9 @@ struct ShortcutActionDispatcher {
              .vcsCreatePR,
              .vcsNextHunk,
              .vcsPrevHunk,
-             .vcsCopyLineRef:
+             .vcsCopyLineRef,
+             .vcsCollapseOrParent,
+             .vcsExpandOrChild:
             return false
         }
     }

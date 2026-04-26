@@ -191,4 +191,165 @@ struct VCSTabStateNavigationTests {
         state.toggleFocusedExpand()
         #expect(!state.changesCollapsed)
     }
+
+    @Test("stageOrUnstageFocusedFile stages a changes file and advances focus to next")
+    func stageOrUnstageStagesChangesFileAdvancesFocus() {
+        let state = makeState(unstaged: ["a.swift", "b.swift"])
+        state.focus = .file(section: .changes, path: "a.swift")
+        let acted = state.stageOrUnstageFocusedFile()
+        #expect(acted)
+        #expect(state.focus == .file(section: .changes, path: "b.swift"))
+    }
+
+    @Test("stageOrUnstageFocusedFile moves focus to previous when staging last file")
+    func stageOrUnstageLastFileMovesFocusToPrev() {
+        let state = makeState(unstaged: ["a.swift", "b.swift"])
+        state.focus = .file(section: .changes, path: "b.swift")
+        let acted = state.stageOrUnstageFocusedFile()
+        #expect(acted)
+        #expect(state.focus == .file(section: .changes, path: "a.swift"))
+    }
+
+    @Test("stageOrUnstageFocusedFile moves focus to adjacent section when only file is staged")
+    func stageOrUnstageOnlyFileMovesFocusToAdjacentSection() {
+        let state = makeState(unstaged: ["a.swift"], commits: ["Initial"])
+        state.focus = .file(section: .changes, path: "a.swift")
+        let acted = state.stageOrUnstageFocusedFile()
+        #expect(acted)
+        #expect(state.focus == .section(.history))
+    }
+
+    @Test("stageOrUnstageFocusedFile moves focus to next section when unstaging only staged file")
+    func stageOrUnstageOnlyStagedFileMovesFocusToChanges() {
+        let state = makeState(staged: ["s.swift"], unstaged: ["u.swift"])
+        state.focus = .file(section: .staged, path: "s.swift")
+        let acted = state.stageOrUnstageFocusedFile()
+        #expect(acted)
+        #expect(state.focus == .section(.changes))
+    }
+
+    @Test("stageOrUnstageFocusedFile unstages a staged file and advances focus")
+    func stageOrUnstageUnstagesStagedFileAdvancesFocus() {
+        let state = makeState(staged: ["s.swift", "t.swift"])
+        state.focus = .file(section: .staged, path: "s.swift")
+        let acted = state.stageOrUnstageFocusedFile()
+        #expect(acted)
+        #expect(state.focus == .file(section: .staged, path: "t.swift"))
+    }
+
+    @Test("stageOrUnstageFocusedFile returns false for section focus")
+    func stageOrUnstageReturnsFalseForSection() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.focus = .section(.changes)
+        let acted = state.stageOrUnstageFocusedFile()
+        #expect(!acted)
+        #expect(state.focus == .section(.changes))
+    }
+
+    @Test("stageOrUnstageFocusedFile returns false for commit focus")
+    func stageOrUnstageReturnsFalseForCommit() {
+        let state = makeState(commits: ["Initial"])
+        state.focus = .commit(hash: "hash0")
+        let acted = state.stageOrUnstageFocusedFile()
+        #expect(!acted)
+        #expect(state.focus == .commit(hash: "hash0"))
+    }
+
+    @Test("collapseOrParent collapses an expanded section")
+    func collapseOrParentCollapsesSection() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.changesCollapsed = false
+        state.focus = .section(.changes)
+        state.collapseOrParent()
+        #expect(state.changesCollapsed)
+    }
+
+    @Test("collapseOrParent is no-op on already collapsed section")
+    func collapseOrParentNoOpOnCollapsedSection() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.changesCollapsed = true
+        state.focus = .section(.changes)
+        state.collapseOrParent()
+        #expect(state.changesCollapsed)
+    }
+
+    @Test("collapseOrParent collapses expanded file diff")
+    func collapseOrParentCollapsesFileDiff() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.focus = .file(section: .changes, path: "a.swift")
+        state.expandedFilePaths.insert("a.swift")
+        state.collapseOrParent()
+        #expect(!state.expandedFilePaths.contains("a.swift"))
+        #expect(state.focus == .file(section: .changes, path: "a.swift"))
+    }
+
+    @Test("collapseOrParent moves focus to section header when file diff is collapsed")
+    func collapseOrParentMovesToSectionHeader() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.focus = .file(section: .changes, path: "a.swift")
+        state.collapseOrParent()
+        #expect(state.focus == .section(.changes))
+    }
+
+    @Test("collapseOrParent moves commit focus to history section")
+    func collapseOrParentMovesCommitToHistory() {
+        let state = makeState(commits: ["Initial"])
+        state.focus = .commit(hash: "hash0")
+        state.collapseOrParent()
+        #expect(state.focus == .section(.history))
+    }
+
+    @Test("collapseOrParent moves pullRequest focus to pullRequests section")
+    func collapseOrParentMovesPRToPRSection() {
+        let state = makeState()
+        state.pullRequestsVisible = true
+        state.focus = .pullRequest(number: 42)
+        state.collapseOrParent()
+        #expect(state.focus == .section(.pullRequests))
+    }
+
+    @Test("expandOrFirstChild expands a collapsed section")
+    func expandOrFirstChildExpandsSection() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.changesCollapsed = true
+        state.focus = .section(.changes)
+        state.expandOrFirstChild()
+        #expect(!state.changesCollapsed)
+    }
+
+    @Test("expandOrFirstChild moves into first row of already expanded section")
+    func expandOrFirstChildMovesToFirstRow() {
+        let state = makeState(unstaged: ["a.swift", "b.swift"])
+        state.changesCollapsed = false
+        state.focus = .section(.changes)
+        state.expandOrFirstChild()
+        #expect(state.focus == .file(section: .changes, path: "a.swift"))
+    }
+
+    @Test("expandOrFirstChild expands collapsed file diff")
+    func expandOrFirstChildExpandsFileDiff() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.focus = .file(section: .changes, path: "a.swift")
+        #expect(!state.expandedFilePaths.contains("a.swift"))
+        state.expandOrFirstChild()
+        #expect(state.expandedFilePaths.contains("a.swift"))
+    }
+
+    @Test("expandOrFirstChild is no-op on already expanded file diff")
+    func expandOrFirstChildNoOpOnExpandedFileDiff() {
+        let state = makeState(unstaged: ["a.swift"])
+        state.focus = .file(section: .changes, path: "a.swift")
+        state.expandedFilePaths.insert("a.swift")
+        state.expandOrFirstChild()
+        #expect(state.expandedFilePaths.contains("a.swift"))
+        #expect(state.focus == .file(section: .changes, path: "a.swift"))
+    }
+
+    @Test("expandOrFirstChild is no-op on commit focus")
+    func expandOrFirstChildNoOpOnCommit() {
+        let state = makeState(commits: ["Initial"])
+        state.focus = .commit(hash: "hash0")
+        state.expandOrFirstChild()
+        #expect(state.focus == .commit(hash: "hash0"))
+    }
 }

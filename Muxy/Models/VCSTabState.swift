@@ -612,6 +612,43 @@ final class VCSTabState {
         unstageFile(path)
     }
 
+    @discardableResult
+    func stageOrUnstageFocusedFile() -> Bool {
+        guard case let .file(section, path) = focus else { return false }
+        switch section {
+        case .changes:
+            advanceFocusAfterFileRemoval(from: section, path: path)
+            stageFile(path)
+            return true
+        case .staged:
+            advanceFocusAfterFileRemoval(from: section, path: path)
+            unstageFile(path)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func advanceFocusAfterFileRemoval(from section: Section, path: String) {
+        let sectionRows = rows(for: section)
+        guard let index = sectionRows.firstIndex(of: .file(section: section, path: path)) else { return }
+        if index + 1 < sectionRows.count {
+            focus = sectionRows[index + 1]
+        } else if index > 0 {
+            focus = sectionRows[index - 1]
+        } else {
+            let sections = visibleSections
+            guard let sectionIndex = sections.firstIndex(of: section) else { return }
+            if sectionIndex + 1 < sections.count {
+                focus = .section(sections[sectionIndex + 1])
+            } else if sectionIndex > 0 {
+                focus = .section(sections[sectionIndex - 1])
+            } else {
+                focus = nil
+            }
+        }
+    }
+
     func discardFocusedPath() -> String? {
         guard case let .file(section, path) = focus, section == .changes else { return nil }
         return path
@@ -636,6 +673,42 @@ final class VCSTabState {
         case let .commit(hash):
             openCommitDiff(hash: hash)
         default:
+            break
+        }
+    }
+
+    func collapseOrParent() {
+        switch focus {
+        case let .section(s):
+            if !isSectionCollapsed(s) { toggleSectionCollapse(s) }
+        case let .file(section, path):
+            if expandedFilePaths.contains(path) {
+                toggleExpanded(filePath: path)
+            } else {
+                focus = .section(section)
+            }
+        case .commit:
+            focus = .section(.history)
+        case .pullRequest:
+            focus = .section(.pullRequests)
+        case .none:
+            break
+        }
+    }
+
+    func expandOrFirstChild() {
+        switch focus {
+        case let .section(s):
+            if isSectionCollapsed(s) {
+                toggleSectionCollapse(s)
+            } else {
+                selectNextRow()
+            }
+        case let .file(_, path):
+            if !expandedFilePaths.contains(path) { toggleExpanded(filePath: path) }
+        case .commit,
+             .pullRequest,
+             .none:
             break
         }
     }
