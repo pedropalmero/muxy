@@ -75,6 +75,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case vcsDiscardSelected
     case vcsOpenInEditor
     case vcsOpenDiffInTab
+    case vcsOpenInExternalEditor
     case vcsFocusCommitMessage
     case vcsRefresh
     case vcsPush
@@ -155,6 +156,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .vcsDiscardSelected,
         .vcsOpenInEditor,
         .vcsOpenDiffInTab,
+        .vcsOpenInExternalEditor,
         .vcsFocusCommitMessage,
         .vcsRefresh,
         .vcsPush,
@@ -260,6 +262,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .vcsDiscardSelected: ShortcutMetadata(displayName: "Discard Selected", category: "Source Control", scope: .vcsPanel)
         case .vcsOpenInEditor: ShortcutMetadata(displayName: "Open in Editor", category: "Source Control", scope: .vcsPanel)
         case .vcsOpenDiffInTab: ShortcutMetadata(displayName: "Open Diff in Tab", category: "Source Control", scope: .vcsPanel)
+        case .vcsOpenInExternalEditor: ShortcutMetadata(
+                displayName: "Open in External Editor",
+                category: "Source Control",
+                scope: .vcsPanel
+            )
         case .vcsFocusCommitMessage: ShortcutMetadata(displayName: "Focus Commit Message", category: "Source Control", scope: .vcsPanel)
         case .vcsRefresh: ShortcutMetadata(displayName: "Refresh", category: "Source Control", scope: .vcsPanel)
         case .vcsPush: ShortcutMetadata(displayName: "Push", category: "Source Control", scope: .vcsPanel)
@@ -443,6 +450,7 @@ extension KeyBinding: Codable {
         Self(action: .vcsDiscardSelected, combos: [KeyCombo(key: "d"), KeyCombo(key: "\u{7F}", command: true)]),
         Self(action: .vcsOpenInEditor, combo: KeyCombo(key: "o")),
         Self(action: .vcsOpenDiffInTab, combo: KeyCombo(key: "o", shift: true)),
+        Self(action: .vcsOpenInExternalEditor, combo: KeyCombo(key: "o", option: true)),
         Self(action: .vcsFocusCommitMessage, combo: KeyCombo(key: "c")),
         Self(action: .vcsRefresh, combo: KeyCombo(key: "r")),
         Self(action: .vcsPush, combo: KeyCombo(key: "p", shift: true)),

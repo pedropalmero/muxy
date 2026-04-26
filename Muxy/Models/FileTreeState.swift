@@ -9,6 +9,7 @@ final class FileTreeState {
         case untracked
         case renamed
         case conflict
+        case deleted
     }
 
     enum PendingEntryKind {

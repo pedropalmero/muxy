@@ -10,7 +10,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     let noMatchLabel: String
     /// Provides items for a given query. Called on every query change.
     let search: (String) async -> [Item]
-    let onSelect: (Item) -> Void
+    let onSelect: (Item, Bool) -> Void
     let onDismiss: () -> Void
     let row: (Item, Bool) -> AnyView
 
@@ -89,7 +89,10 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                             ForEach(Array(results.enumerated()), id: \.element.id) { index, item in
                                 row(item, index == highlightedIndex)
                                     .contentShape(Rectangle())
-                                    .onTapGesture { onSelect(item) }
+                                    .onTapGesture {
+                                        let optionHeld = NSEvent.modifierFlags.contains(.option)
+                                        onSelect(item, optionHeld)
+                                    }
                                     .id(item.id)
                             }
                         }
@@ -138,7 +141,8 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
     private func confirmSelection() {
         guard let index = highlightedIndex, index < results.count else { return }
-        onSelect(results[index])
+        let optionHeld = NSEvent.modifierFlags.contains(.option)
+        onSelect(results[index], optionHeld)
     }
 }
 
@@ -204,7 +208,9 @@ struct PaletteSearchField: NSViewRepresentable {
             textView _: NSTextView,
             doCommandBy commandSelector: Selector
         ) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) ||
+                commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+            {
                 syncText(from: control, skipsMarkedText: false)
                 parent.onSubmit()
                 return true

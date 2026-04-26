@@ -161,9 +161,13 @@ struct MainWindow: View {
             if showQuickOpen, let project = activeProject {
                 QuickOpenOverlay(
                     projectPath: activeWorktreePath(for: project),
-                    onSelect: { filePath in
+                    onSelect: { filePath, optionHeld in
                         showQuickOpen = false
-                        appState.openFile(filePath, projectID: project.id)
+                        if optionHeld {
+                            appState.openFileExternally(filePath, projectID: project.id)
+                        } else {
+                            appState.openFileInBuiltInEditor(filePath, projectID: project.id)
+                        }
                     },
                     onDismiss: { showQuickOpen = false }
                 )
@@ -980,9 +984,13 @@ struct MainWindow: View {
                 }
                 FileTreeView(
                     state: treeState,
-                    onOpenFile: { filePath in
+                    onOpenFile: { filePath, optionHeld in
                         guard let projectID = appState.activeProjectID else { return }
-                        appState.openFile(filePath, projectID: projectID, preserveFocus: true)
+                        if optionHeld {
+                            appState.openFileExternally(filePath, projectID: projectID)
+                        } else {
+                            appState.openFile(filePath, projectID: projectID, preserveFocus: true)
+                        }
                     },
                     onOpenTerminal: { directory in
                         guard let projectID = appState.activeProjectID else { return }

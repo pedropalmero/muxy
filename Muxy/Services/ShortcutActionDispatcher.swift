@@ -205,6 +205,7 @@ struct ShortcutActionDispatcher {
              .vcsUnstageSelected,
              .vcsDiscardSelected,
              .vcsOpenInEditor,
+             .vcsOpenInExternalEditor,
              .vcsOpenDiffInTab,
              .vcsFocusCommitMessage,
              .vcsRefresh,

@@ -548,6 +548,7 @@ struct VCSTabView: View {
                     pendingDiscardPath: $pendingDiscardPath,
                     pendingCheckoutPR: $pendingCheckoutPR,
                     onOpenInEditor: openFileInEditor,
+                    onOpenInExternalEditor: openFileInExternalEditor,
                     onOpenDiff: openDiffInTab,
                     onActivateCommit: openCommitDiffInTab
                 )
@@ -883,7 +884,15 @@ struct VCSTabView: View {
         let fullPath = state.projectPath.hasSuffix("/")
             ? state.projectPath + relativePath
             : state.projectPath + "/" + relativePath
-        appState.openFile(fullPath, projectID: projectID)
+        appState.openFileInBuiltInEditor(fullPath, projectID: projectID)
+    }
+
+    private func openFileInExternalEditor(_ relativePath: String) {
+        guard let projectID = appState.activeProjectID else { return }
+        let fullPath = state.projectPath.hasSuffix("/")
+            ? state.projectPath + relativePath
+            : state.projectPath + "/" + relativePath
+        appState.openFileExternally(fullPath, projectID: projectID)
     }
 
     private func openDiffInTab(_ relativePath: String, isStaged: Bool) {
@@ -961,6 +970,11 @@ struct VCSTabView: View {
         case .vcsOpenInEditor:
             guard let path = state.openFocusedFilePath() else { return false }
             openFileInEditor(path)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { activatePanelFocus() }
+            return true
+        case .vcsOpenInExternalEditor:
+            guard let path = state.openFocusedFilePath() else { return false }
+            openFileInExternalEditor(path)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { activatePanelFocus() }
             return true
         case .vcsOpenDiffInTab:
@@ -1523,6 +1537,7 @@ private struct SectionSplitLayout: View {
     @Binding var pendingDiscardPath: String?
     @Binding var pendingCheckoutPR: GitRepositoryService.PRListItem?
     let onOpenInEditor: (String) -> Void
+    let onOpenInExternalEditor: (String) -> Void
     let onOpenDiff: (String, Bool) -> Void
     let onActivateCommit: (GitCommit) -> Void
 
@@ -1960,6 +1975,7 @@ private struct SectionSplitLayout: View {
                 onUnstage: { state.unstageFile(file.path) },
                 onDiscard: { pendingDiscardPath = file.path },
                 onOpenInEditor: { onOpenInEditor(file.path) },
+                onOpenInExternalEditor: { onOpenInExternalEditor(file.path) },
                 onOpenDiff: { onOpenDiff(file.path, isStaged) }
             )
             .id("file-\(section)-\(file.path)")
@@ -2021,6 +2037,7 @@ private struct FileRow: View {
     let onUnstage: () -> Void
     let onDiscard: () -> Void
     let onOpenInEditor: () -> Void
+    let onOpenInExternalEditor: () -> Void
     let onOpenDiff: () -> Void
     @State private var hovered = false
 
@@ -2098,6 +2115,13 @@ private struct FileRow: View {
         HStack(spacing: 0) {
             IconButton(symbol: "doc.text", size: 11, accessibilityLabel: "Open in Editor", action: onOpenInEditor)
                 .help("Open in Editor (\(KeyBindingStore.shared.combo(for: .vcsOpenInEditor).displayString))")
+            IconButton(
+                symbol: "square.and.arrow.up",
+                size: 11,
+                accessibilityLabel: "Open in External Editor",
+                action: onOpenInExternalEditor
+            )
+            .help("Open in External Editor (\(KeyBindingStore.shared.combo(for: .vcsOpenInExternalEditor).displayString))")
             IconButton(symbol: "rectangle.split.2x1", size: 11, accessibilityLabel: "Open Diff in New Tab", action: onOpenDiff)
                 .help("Open Diff in New Tab (\(KeyBindingStore.shared.combo(for: .vcsOpenDiffInTab).displayString))")
             if isStaged {

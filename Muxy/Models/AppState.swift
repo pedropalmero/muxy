@@ -367,6 +367,30 @@ final class AppState {
         state.pendingJumpVersion &+= 1
     }
 
+    func openFileInBuiltInEditor(_ filePath: String, projectID: UUID) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath, suppressInitialFocus: false))
+    }
+
+    func openFileExternally(_ filePath: String, projectID _: UUID) {
+        let command = EditorSettings.shared.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return }
+        let escapedPath = "'" + filePath.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "\(command) \(escapedPath)"]
+        do {
+            try process.run()
+        } catch {
+            logger.error("Failed to launch external editor: \(error.localizedDescription)")
+        }
+    }
+
     func handleFileMoved(from oldPath: String, to newPath: String) {
         guard oldPath != newPath else { return }
         let oldPrefix = oldPath + "/"

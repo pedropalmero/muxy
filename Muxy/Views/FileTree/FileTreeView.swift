@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 struct FileTreeView: View {
     @Bindable var state: FileTreeState
-    let onOpenFile: (String) -> Void
+    let onOpenFile: (String, Bool) -> Void
     let onOpenTerminal: (String) -> Void
     let onFileMoved: (String, String) -> Void
 
@@ -15,7 +15,7 @@ struct FileTreeView: View {
 
     init(
         state: FileTreeState,
-        onOpenFile: @escaping (String) -> Void,
+        onOpenFile: @escaping (String, Bool) -> Void,
         onOpenTerminal: @escaping (String) -> Void,
         onFileMoved: @escaping (String, String) -> Void
     ) {
@@ -206,7 +206,7 @@ struct FileTreeView: View {
             onArrowDown: { state.moveSelection(by: 1) },
             onArrowLeft: { state.collapseOrJumpToParent() },
             onArrowRight: { state.expandOrDescend() },
-            onActivate: { state.activateSelection(open: onOpenFile) },
+            onActivate: { state.activateSelection(open: { onOpenFile($0, false) }) },
             onEscape: { NotificationCenter.default.post(name: .toggleFileTree, object: nil) },
             onDelete: {
                 guard !state.selectedPaths.isEmpty else { return }
@@ -266,6 +266,46 @@ struct FileTreeView: View {
     private func requestKeyboardFocus() {
         focusToken &+= 1
     }
+
+    private var normalizedRootPath: String {
+        state.rootPath.hasSuffix("/") ? String(state.rootPath.dropLast()) : state.rootPath
+    }
+}
+
+private struct FileTreeRowGroup: View {
+    let entry: FileTreeEntry
+    let depth: Int
+    @Bindable var state: FileTreeState
+    let commands: FileTreeCommands
+    let onOpenFile: (String, Bool) -> Void
+    let requestFocus: () -> Void
+
+    var body: some View {
+        FileTreeRow(
+            entry: entry,
+            depth: depth,
+            state: state,
+            commands: commands,
+            onOpenFile: onOpenFile,
+            requestFocus: requestFocus
+        )
+        if entry.isDirectory, state.isExpanded(entry), let children = state.visibleChildren(of: entry) {
+            ForEach(children, id: \.absolutePath) { child in
+                FileTreeRowGroup(
+                    entry: child,
+                    depth: depth + 1,
+                    state: state,
+                    commands: commands,
+                    onOpenFile: onOpenFile,
+                    requestFocus: requestFocus
+                )
+            }
+            if let pending = state.pendingNewEntry, pending.parentPath == entry.absolutePath {
+                FileTreeNewEntryRow(kind: pending.kind, depth: depth + 1, commands: commands)
+                    .id(pending.token)
+            }
+        }
+    }
 }
 
 private struct FileTreeRow: View {
@@ -273,7 +313,7 @@ private struct FileTreeRow: View {
     let depth: Int
     @Bindable var state: FileTreeState
     let commands: FileTreeCommands
-    let onOpenFile: (String) -> Void
+    let onOpenFile: (String, Bool) -> Void
     let requestFocus: () -> Void
     @State private var hovered = false
 
@@ -393,7 +433,8 @@ private struct FileTreeRow: View {
         case .added,
              .untracked:
             return MuxyTheme.diffAddFg
-        case .conflict:
+        case .conflict,
+             .deleted:
             return MuxyTheme.diffRemoveFg
         }
     }
@@ -412,8 +453,8 @@ private struct FileTreeRow: View {
         state.selectOnly(entry.absolutePath)
         if entry.isDirectory {
             state.toggle(entry)
-        } else {
-            onOpenFile(entry.absolutePath)
+        } else if state.status(for: entry.absolutePath) != .deleted {
+            onOpenFile(entry.absolutePath, modifiers.contains(.option))
         }
     }
 }

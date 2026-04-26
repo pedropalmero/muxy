@@ -2,7 +2,7 @@ import SwiftUI
 
 struct QuickOpenOverlay: View {
     let projectPath: String
-    let onSelect: (String) -> Void
+    let onSelect: (String, Bool) -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -13,7 +13,7 @@ struct QuickOpenOverlay: View {
             search: { query in
                 await FileSearchService.search(query: query, in: projectPath)
             },
-            onSelect: { result in onSelect(result.absolutePath) },
+            onSelect: { result, optionHeld in onSelect(result.absolutePath, optionHeld) },
             onDismiss: onDismiss,
             row: { result, isHighlighted in
                 AnyView(FileResultRow(result: result, isHighlighted: isHighlighted))
