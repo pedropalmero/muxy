@@ -15,7 +15,40 @@ struct VCSTabView: View {
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
     @FocusState private var commitMessageFocused: Bool
     private var commitEnabled: Bool {
-        state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        switch state.pendingCommitAction {
+        case .commit:
+            let messageOk = !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return messageOk && state.hasStagedChanges
+        case .amend:
+            return !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .amendKeepMessage:
+            return true
+        }
+    }
+
+    private var commitButtonLabel: String {
+        switch state.pendingCommitAction {
+        case .commit: "Commit"
+        case .amend: "Amend last commit"
+        case .amendKeepMessage: "Amend (keep message)"
+        }
+    }
+
+    private var commitButtonTooltip: String {
+        switch state.pendingCommitAction {
+        case .commit: "Commit staged changes (⌘↵)"
+        case .amend: "Amend last commit (⌘↵)"
+        case .amendKeepMessage: "Amend last commit keeping existing message (⌘↵)"
+        }
+    }
+
+    private var commitMessagePlaceholder: String {
+        let branch = state.branchName ?? "branch"
+        return switch state.pendingCommitAction {
+        case .commit: "Commit message (⌘↵ to commit on \(branch))"
+        case .amend: "Amend message (⌘↵ to amend HEAD on \(branch))"
+        case .amendKeepMessage: "Existing commit message will be kept (⌘↵ to amend on \(branch))"
+        }
     }
 
     private var pullTooltip: String {
@@ -598,9 +631,29 @@ struct VCSTabView: View {
 
     private var commitArea: some View {
         VStack(spacing: UIMetrics.spacing4) {
+            if state.pendingCommitAction != .commit {
+                HStack(spacing: UIMetrics.spacing2) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    Text(
+                        state.pendingCommitAction == .amendKeepMessage
+                            ? "Amending last commit (keeping message)"
+                            : "Amending last commit"
+                    )
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                    Spacer()
+                    Button("Cancel") { state.selectCommitAction(.commit) }
+                        .font(.system(size: UIMetrics.fontFootnote))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                        .buttonStyle(.plain)
+                }
+                .foregroundStyle(MuxyTheme.fgDim)
+                .padding(.horizontal, UIMetrics.spacing1)
+            }
+
             ZStack(alignment: .topLeading) {
                 if state.commitMessage.isEmpty {
-                    Text("Commit message (⌘↵ to commit on \(state.branchName ?? "branch"))")
+                    Text(commitMessagePlaceholder)
                         .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fgDim)
                         .padding(.horizontal, UIMetrics.spacing5)
@@ -617,7 +670,7 @@ struct VCSTabView: View {
                     .focused($commitMessageFocused)
                     .onKeyPress(.return, phases: .down) { keyPress in
                         if keyPress.modifiers.contains(.command) {
-                            state.commit()
+                            state.executePendingCommit()
                             return .handled
                         }
                         return .ignored
@@ -679,34 +732,71 @@ struct VCSTabView: View {
     }
 
     private var commitButton: some View {
-        Button {
-            state.commit()
-        } label: {
-            HStack(spacing: UIMetrics.spacing2) {
-                if state.isCommitting {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+        HStack(spacing: 0) {
+            Button { state.executePendingCommit() } label: {
+                HStack(spacing: UIMetrics.spacing2) {
+                    if state.isCommitting {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                    }
+                    Text(commitButtonLabel)
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 }
-                Text("Commit")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                .foregroundStyle(commitEnabled ? MuxyTheme.bg : MuxyTheme.fgDim)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.actionButtonHeight)
             }
-            .foregroundStyle(commitEnabled ? MuxyTheme.bg : MuxyTheme.fgDim)
-            .frame(maxWidth: .infinity)
-            .frame(height: Self.actionButtonHeight)
-            .background(
-                commitEnabled ? MuxyTheme.accent : MuxyTheme.surface,
-                in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                    .stroke(MuxyTheme.border, lineWidth: commitEnabled ? 0 : 1)
-            )
+            .buttonStyle(.plain)
+            .disabled(!commitEnabled || state.isCommitting)
+
+            Rectangle()
+                .fill(commitEnabled ? MuxyTheme.bg.opacity(0.25) : MuxyTheme.border)
+                .frame(width: 1, height: Self.actionButtonHeight - 8)
+
+            Menu {
+                actionMenuItem(.commit)
+                actionMenuItem(.amend)
+                actionMenuItem(.amendKeepMessage)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+                    .foregroundStyle(commitEnabled ? MuxyTheme.bg : MuxyTheme.fgDim)
+                    .frame(width: UIMetrics.controlMedium, height: Self.actionButtonHeight)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(state.isCommitting)
         }
-        .buttonStyle(.plain)
-        .disabled(!commitEnabled || state.isCommitting)
-        .help("Commit staged changes (⌘↵)")
+        .background(
+            commitEnabled ? MuxyTheme.accent : MuxyTheme.surface,
+            in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                .stroke(MuxyTheme.border, lineWidth: commitEnabled ? 0 : 1)
+        )
+        .help(commitButtonTooltip)
+    }
+
+    @ViewBuilder
+    private func actionMenuItem(_ action: VCSTabState.PendingCommitAction) -> some View {
+        let label = switch action {
+        case .commit: "Commit"
+        case .amend: "Amend last commit"
+        case .amendKeepMessage: "Amend (keep message)"
+        }
+        Button {
+            state.selectCommitAction(action)
+        } label: {
+            if state.pendingCommitAction == action {
+                Label(label, systemImage: "checkmark")
+            } else {
+                Text(label)
+            }
+        }
     }
 
     private var pullButton: some View {

@@ -968,8 +968,20 @@ struct GitRepositoryService {
         }
     }
 
-    func commit(repoPath: String, message: String) async throws -> String {
-        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["commit", "-m", message])
+    func commit(repoPath: String, message: String, amend: Bool = false, keepMessage: Bool = false) async throws -> String {
+        var arguments = ["commit"]
+        if amend {
+            arguments.append("--amend")
+            if keepMessage {
+                arguments.append("--no-edit")
+            } else {
+                arguments += ["-m", message]
+            }
+        } else {
+            arguments += ["-m", message]
+        }
+
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: arguments)
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to commit." : result.stderr)
         }
@@ -979,6 +991,12 @@ struct GitRepositoryService {
         let hashResult = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["rev-parse", "--short", "HEAD"])
         guard hashResult.status == 0 else { return "" }
         return hashResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func headCommitMessage(repoPath: String) async throws -> String {
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["log", "-1", "--pretty=%B"])
+        guard result.status == 0 else { return "" }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func push(repoPath: String) async throws {

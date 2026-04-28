@@ -46,6 +46,12 @@ final class VCSTabState {
         case none
     }
 
+    enum PendingCommitAction: Equatable {
+        case commit
+        case amend
+        case amendKeepMessage
+    }
+
     struct PRCreateRequest {
         let baseBranch: String
         let title: String
@@ -106,6 +112,9 @@ final class VCSTabState {
     var commitMessage = ""
     var prFormDraft = PRFormDraft()
     var showInlinePRForm = false
+    var amendMode = false
+    var pendingCommitAction: PendingCommitAction = .commit
+    private var preAmendMessage = ""
     var branches: [String] = []
     var isCommitting = false
     var isPushing = false
@@ -958,21 +967,99 @@ final class VCSTabState {
             showStatus("Enter a commit message.", isError: true)
             return
         }
-        guard hasStagedChanges else {
+        guard amendMode || hasStagedChanges else {
             showStatus("No staged changes to commit.", isError: true)
             return
         }
+        let isAmend = amendMode
         isCommitting = true
         Task { [weak self] in
             guard let self else { return }
             defer { isCommitting = false }
             do {
-                let hash = try await git.commit(repoPath: projectPath, message: message)
+                let hash = try await git.commit(repoPath: projectPath, message: message, amend: isAmend)
                 guard !Task.isCancelled else { return }
+                amendMode = false
+                pendingCommitAction = .commit
                 commitMessage = ""
+                preAmendMessage = ""
                 commits = []
-                showStatus("Committed \(hash)", isError: false)
+                showStatus(isAmend ? "Amended \(hash)" : "Committed \(hash)", isError: false)
                 performRefresh(incremental: false, forcePRFetch: true)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func selectCommitAction(_ action: PendingCommitAction) {
+        guard pendingCommitAction != action, !isCommitting else { return }
+        let leavingAmend = pendingCommitAction == .amend
+        switch action {
+        case .commit:
+            if leavingAmend { cancelAmendMode() }
+            pendingCommitAction = .commit
+        case .amend:
+            pendingCommitAction = .amend
+            if !amendMode { enterAmendMode() }
+        case .amendKeepMessage:
+            if leavingAmend { cancelAmendMode() }
+            pendingCommitAction = .amendKeepMessage
+        }
+    }
+
+    func executePendingCommit() {
+        switch pendingCommitAction {
+        case .commit,
+             .amend:
+            commit()
+        case .amendKeepMessage:
+            amendKeepingMessage()
+        }
+    }
+
+    func enterAmendMode() {
+        guard !isCommitting, !amendMode else { return }
+        preAmendMessage = commitMessage
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let message = try await git.headCommitMessage(repoPath: projectPath)
+                guard !message.isEmpty else {
+                    showStatus("No commit to amend.", isError: true)
+                    pendingCommitAction = .commit
+                    return
+                }
+                commitMessage = message
+                amendMode = true
+            } catch {
+                showStatus("No commit to amend.", isError: true)
+                pendingCommitAction = .commit
+            }
+        }
+    }
+
+    func cancelAmendMode() {
+        amendMode = false
+        commitMessage = preAmendMessage
+        preAmendMessage = ""
+    }
+
+    func amendKeepingMessage() {
+        guard !isCommitting else { return }
+        isCommitting = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isCommitting = false }
+            do {
+                let hash = try await git.commit(repoPath: projectPath, message: "", amend: true, keepMessage: true)
+                guard !Task.isCancelled else { return }
+                amendMode = false
+                pendingCommitAction = .commit
+                commits = []
+                showStatus("Amended \(hash)", isError: false)
+                performRefresh(incremental: false)
             } catch {
                 guard !Task.isCancelled else { return }
                 showStatus(errorText(error), isError: true)
