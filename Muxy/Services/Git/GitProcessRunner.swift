@@ -94,12 +94,20 @@ enum GitProcessRunner {
 
     private static func runProcess(_ spec: ProcessSpec) async throws -> GitProcessResult {
         let handle = ProcessHandle()
-        return try await withTaskCancellationHandler {
-            try await dispatch {
-                try runProcessSync(spec, handle: handle)
+        await GitProcessLimiter.shared.acquire()
+        do {
+            let result = try await withTaskCancellationHandler {
+                try await dispatch {
+                    try runProcessSync(spec, handle: handle)
+                }
+            } onCancel: {
+                handle.terminate()
             }
-        } onCancel: {
-            handle.terminate()
+            await GitProcessLimiter.shared.release()
+            return result
+        } catch {
+            await GitProcessLimiter.shared.release()
+            throw error
         }
     }
 

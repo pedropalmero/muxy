@@ -1050,6 +1050,7 @@ struct MainWindow: View {
             return
         }
         fileTreeStates[key] = FileTreeState(rootPath: path)
+        syncActiveStates()
     }
 
     private var fileTreeSource: FileTreeSourcePreference {
@@ -1260,6 +1261,18 @@ struct MainWindow: View {
               appState.activeWorktreeKey(for: project.id) != nil
         else { return nil }
         return VCSStateStore.shared.state(for: activeWorktreePath(for: project))
+    }
+
+    private func ensureVCSState(for project: Project) {
+        _ = VCSStateStore.shared.state(for: activeWorktreePath(for: project))
+        syncActiveStates()
+    }
+
+    private func syncActiveStates() {
+        let activeKey = activeWorktreeKey
+        for (key, state) in fileTreeStates {
+            state.setActive(key == activeKey)
+        }
     }
 
     private func activeWorktreePath(for project: Project) -> String {

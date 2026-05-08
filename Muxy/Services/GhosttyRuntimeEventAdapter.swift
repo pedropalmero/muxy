@@ -13,10 +13,24 @@ protocol GhosttyRuntimeEventHandling {
     func closeSurface(userdata: UnsafeMutableRawPointer?, needsConfirm: Bool)
 }
 
-final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
+final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling, @unchecked Sendable {
+    private let tickLock = NSLock()
+    private var tickPending = false
+
     func wakeup() {
-        DispatchQueue.main.async {
-            GhosttyService.shared.tick()
+        tickLock.lock()
+        let alreadyPending = tickPending
+        tickPending = true
+        tickLock.unlock()
+        guard !alreadyPending else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            tickLock.lock()
+            tickPending = false
+            tickLock.unlock()
+            MainActor.assumeIsolated {
+                GhosttyService.shared.tick()
+            }
         }
     }
 

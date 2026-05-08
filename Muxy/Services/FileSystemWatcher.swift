@@ -4,7 +4,6 @@ import Foundation
 final class FileSystemWatcher: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.muxy.fs-watcher", qos: .utility)
     private var stream: FSEventStreamRef?
-    private var debounceWork: DispatchWorkItem?
     private var handler: (@Sendable () -> Void)?
 
     init?(directoryPath: String, handler: @escaping @Sendable () -> Void) {
@@ -25,19 +24,17 @@ final class FileSystemWatcher: @unchecked Sendable {
                 else { return }
                 let flags = Array(UnsafeBufferPointer(start: eventFlags, count: numEvents))
 
-                let dominated = zip(paths, flags).allSatisfy { path, flag in
-                    let isGitInternal = path.contains("/.git/")
-                    let isLockFile = path.hasSuffix(".lock")
-                    return isGitInternal && isLockFile || flag & UInt32(kFSEventStreamEventFlagItemIsDir) != 0 && isGitInternal
+                let hasInteresting = zip(paths, flags).contains { path, flag in
+                    !FileSystemWatcher.isNoise(path: path, flag: flag)
                 }
-                guard !dominated else { return }
+                guard hasInteresting else { return }
 
-                watcher.scheduleRefresh()
+                watcher.handler?()
             },
             &context,
             paths,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            0.3,
+            0.5,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         )
         else { return nil }
@@ -49,19 +46,19 @@ final class FileSystemWatcher: @unchecked Sendable {
 
     deinit {
         handler = nil
-        debounceWork?.cancel()
         guard let stream else { return }
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
     }
 
-    private func scheduleRefresh() {
-        debounceWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.handler?()
-        }
-        debounceWork = work
-        queue.asyncAfter(deadline: .now() + 0.3, execute: work)
+    fileprivate static func isNoise(path: String, flag: UInt32) -> Bool {
+        let isGitInternal = path.contains("/.git/")
+        if isGitInternal, path.hasSuffix(".lock") { return true }
+        if isGitInternal, flag & UInt32(kFSEventStreamEventFlagItemIsDir) != 0 { return true }
+        if path.contains("/node_modules/") { return true }
+        if path.contains("/DerivedData/") { return true }
+        if path.hasSuffix(".o") || path.hasSuffix(".a") || path.hasSuffix(".dylib") { return true }
+        return false
     }
 }

@@ -42,10 +42,14 @@ final class FileTreeState {
     var dropHighlightPath: String?
     private(set) var pendingScrollTarget: String?
 
-    @ObservationIgnored private var watcher: FileSystemWatcher?
+    @ObservationIgnored private var watcherSubscription: FileSystemWatcherSubscription?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var rootRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
+    @ObservationIgnored private var isRefreshing = false
+    @ObservationIgnored private var pendingRefresh = false
+    @ObservationIgnored private var isActive = true
 
     init(rootPath: String) {
         self.rootPath = rootPath
@@ -85,11 +89,78 @@ final class FileTreeState {
     }
 
     func refresh() {
-        reloadRoot()
-        for path in expanded {
-            reloadChildren(of: path)
+        guard isActive else {
+            pendingRefresh = true
+            return
         }
-        refreshStatuses()
+        guard !isRefreshing else {
+            pendingRefresh = true
+            return
+        }
+        performRefresh()
+    }
+
+    func setActive(_ active: Bool) {
+        guard isActive != active else { return }
+        isActive = active
+        guard active else { return }
+        if pendingRefresh || rootEntries.isEmpty {
+            pendingRefresh = false
+            performRefresh()
+        }
+    }
+
+    private func performRefresh() {
+        isRefreshing = true
+        pendingRefresh = false
+
+        refreshTask?.cancel()
+        rootRefreshTask?.cancel()
+        statusTask?.cancel()
+
+        let root = rootPath
+        let expandedSnapshot = expanded
+        refreshTask = Task { [weak self] in
+            async let rootEntriesValue = FileTreeService.loadChildren(of: root, repoRoot: root)
+            async let expandedEntries = Self.loadExpandedChildren(paths: expandedSnapshot, repoRoot: root)
+            async let statusResult = Self.loadStatuses(repoRoot: root)
+
+            let rootEntries = await rootEntriesValue
+            let childrenEntries = await expandedEntries
+            let statuses = await statusResult
+
+            guard !Task.isCancelled, let self else { return }
+            self.rootEntries = rootEntries
+            for (path, entries) in childrenEntries {
+                self.children[path] = entries
+            }
+            self.statuses = statuses.fileStatuses
+            self.dirHasChange = statuses.dirtyDirs
+            self.isRefreshing = false
+            if self.pendingRefresh {
+                self.pendingRefresh = false
+                self.refresh()
+            }
+        }
+    }
+
+    nonisolated private static func loadExpandedChildren(
+        paths: Set<String>,
+        repoRoot: String
+    ) async -> [String: [FileTreeEntry]] {
+        await withTaskGroup(of: (String, [FileTreeEntry]).self) { group in
+            for path in paths {
+                group.addTask {
+                    let entries = await FileTreeService.loadChildren(of: path, repoRoot: repoRoot)
+                    return (path, entries)
+                }
+            }
+            var result: [String: [FileTreeEntry]] = [:]
+            for await (path, entries) in group {
+                result[path] = entries
+            }
+            return result
+        }
     }
 
     func refreshDirectory(path: String) {
@@ -362,8 +433,8 @@ final class FileTreeState {
 
     private func reloadRoot() {
         let root = rootPath
-        refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
+        rootRefreshTask?.cancel()
+        rootRefreshTask = Task { [weak self] in
             let entries = await FileTreeService.loadChildren(of: root, repoRoot: root)
             guard !Task.isCancelled, let self else { return }
             rootEntries = entries
@@ -398,7 +469,7 @@ final class FileTreeState {
     }
 
     private func installWatcher() {
-        watcher = FileSystemWatcher(directoryPath: rootPath) { [weak self] in
+        watcherSubscription = FileSystemWatcherHub.shared.subscribe(directoryPath: rootPath) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refresh()
             }
@@ -422,38 +493,16 @@ final class FileTreeState {
     }
 
     nonisolated private static func loadStatuses(repoRoot: String) async -> StatusResult {
-        await GitProcessRunner.offMain {
-            loadStatusesSync(repoRoot: repoRoot)
-        }
-    }
-
-    nonisolated private static func loadStatusesSync(repoRoot: String) -> StatusResult {
-        guard let gitPath = GitProcessRunner.resolveExecutable("git") else {
-            return StatusResult(fileStatuses: [:], dirtyDirs: [])
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: gitPath)
-        process.arguments = ["-C", repoRoot, "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["GIT_OPTIONAL_LOCKS"] = "0"
-        process.environment = environment
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        let outData: Data
         do {
-            try process.run()
+            let result = try await GitProcessRunner.runGit(
+                repoPath: repoRoot,
+                arguments: ["-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
+            )
+            outData = result.stdoutData
         } catch {
             return StatusResult(fileStatuses: [:], dirtyDirs: [])
         }
-
-        let outData = (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data()
-        _ = try? stderrPipe.fileHandleForReading.readToEnd()
-        process.waitUntilExit()
 
         let normalizedRoot = repoRoot.hasSuffix("/") ? String(repoRoot.dropLast()) : repoRoot
         var fileStatuses: [String: FileStatus] = [:]

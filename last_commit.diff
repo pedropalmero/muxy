@@ -1,0 +1,379 @@
+diff --git a/Muxy/Models/FileTreeState.swift b/Muxy/Models/FileTreeState.swift
+index cfd0389..ecad73c 100644
+--- a/Muxy/Models/FileTreeState.swift
++++ b/Muxy/Models/FileTreeState.swift
+@@ -41,10 +41,13 @@ final class FileTreeState {
+     var cutPaths: Set<String> = []
+     var dropHighlightPath: String?
+ 
+-    @ObservationIgnored private var watcher: FileSystemWatcher?
++    @ObservationIgnored private var watcherSubscription: FileSystemWatcherSubscription?
+     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
+     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+     @ObservationIgnored private var statusTask: Task<Void, Never>?
++    @ObservationIgnored private var isRefreshing = false
++    @ObservationIgnored private var pendingRefresh = false
++    @ObservationIgnored private var isActive = true
+ 
+     init(rootPath: String) {
+         self.rootPath = rootPath
+@@ -66,11 +69,77 @@ final class FileTreeState {
+     }
+ 
+     func refresh() {
+-        reloadRoot()
+-        for path in expanded {
+-            reloadChildren(of: path)
++        guard isActive else {
++            pendingRefresh = true
++            return
++        }
++        guard !isRefreshing else {
++            pendingRefresh = true
++            return
++        }
++        performRefresh()
++    }
++
++    func setActive(_ active: Bool) {
++        guard isActive != active else { return }
++        isActive = active
++        guard active else { return }
++        if pendingRefresh || rootEntries.isEmpty {
++            pendingRefresh = false
++            performRefresh()
++        }
++    }
++
++    private func performRefresh() {
++        isRefreshing = true
++        pendingRefresh = false
++
++        refreshTask?.cancel()
++        statusTask?.cancel()
++
++        let root = rootPath
++        let expandedSnapshot = expanded
++        refreshTask = Task { [weak self] in
++            async let rootEntriesValue = FileTreeService.loadChildren(of: root, repoRoot: root)
++            async let expandedEntries = Self.loadExpandedChildren(paths: expandedSnapshot, repoRoot: root)
++            async let statusResult = Self.loadStatuses(repoRoot: root)
++
++            let rootEntries = await rootEntriesValue
++            let childrenEntries = await expandedEntries
++            let statuses = await statusResult
++
++            guard !Task.isCancelled, let self else { return }
++            self.rootEntries = rootEntries
++            for (path, entries) in childrenEntries {
++                self.children[path] = entries
++            }
++            self.statuses = statuses.fileStatuses
++            self.dirHasChange = statuses.dirtyDirs
++            self.isRefreshing = false
++            if self.pendingRefresh {
++                self.pendingRefresh = false
++                self.refresh()
++            }
++        }
++    }
++
++    nonisolated private static func loadExpandedChildren(
++        paths: Set<String>,
++        repoRoot: String
++    ) async -> [String: [FileTreeEntry]] {
++        await withTaskGroup(of: (String, [FileTreeEntry]).self) { group in
++            for path in paths {
++                group.addTask {
++                    let entries = await FileTreeService.loadChildren(of: path, repoRoot: repoRoot)
++                    return (path, entries)
++                }
++            }
++            var result: [String: [FileTreeEntry]] = [:]
++            for await (path, entries) in group {
++                result[path] = entries
++            }
++            return result
+         }
+-        refreshStatuses()
+     }
+ 
+     func refreshDirectory(path: String) {
+@@ -329,7 +398,7 @@ final class FileTreeState {
+     }
+ 
+     private func installWatcher() {
+-        watcher = FileSystemWatcher(directoryPath: rootPath) { [weak self] in
++        watcherSubscription = FileSystemWatcherHub.shared.subscribe(directoryPath: rootPath) { [weak self] in
+             Task { @MainActor [weak self] in
+                 self?.refresh()
+             }
+diff --git a/Muxy/Models/VCSTabState.swift b/Muxy/Models/VCSTabState.swift
+index fe217a8..bc43319 100644
+--- a/Muxy/Models/VCSTabState.swift
++++ b/Muxy/Models/VCSTabState.swift
+@@ -212,10 +212,12 @@ final class VCSTabState {
+     @ObservationIgnored private var commitLogTask: Task<Void, Never>?
+     @ObservationIgnored private var prListTask: Task<Void, Never>?
+     @ObservationIgnored private var prAutoSyncTask: Task<Void, Never>?
+-    @ObservationIgnored private var watcher: FileSystemWatcher?
++    @ObservationIgnored private var watcherSubscription: FileSystemWatcherSubscription?
+     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
+     @ObservationIgnored private var isRefreshing = false
+     @ObservationIgnored private var pendingRefresh = false
++    @ObservationIgnored private var isActive = true
++    @ObservationIgnored private var pendingForcePRFetch = false
+     @ObservationIgnored private var lastFetchedHeadSha: String?
+     private(set) var hasCompletedInitialLoad = false
+     @ObservationIgnored private static let commitsPerPage = 100
+@@ -258,7 +260,7 @@ final class VCSTabState {
+     }
+ 
+     private func startWatching() {
+-        watcher = FileSystemWatcher(directoryPath: projectPath) { [weak self] in
++        watcherSubscription = FileSystemWatcherHub.shared.subscribe(directoryPath: projectPath) { [weak self] in
+             Task { @MainActor [weak self] in
+                 self?.watcherDidFire()
+             }
+@@ -276,17 +278,39 @@ final class VCSTabState {
+                   notifiedPath == path
+             else { return }
+             MainActor.assumeIsolated {
+-                self?.performRefresh(incremental: true, forcePRFetch: true)
++                self?.requestRefresh(incremental: true, forcePRFetch: true)
+             }
+         }
+     }
+ 
+     private func watcherDidFire() {
++        requestRefresh(incremental: true)
++    }
++
++    private func requestRefresh(incremental: Bool, forcePRFetch: Bool = false) {
++        guard isActive else {
++            pendingRefresh = true
++            if forcePRFetch { pendingForcePRFetch = true }
++            return
++        }
+         guard !isRefreshing else {
+             pendingRefresh = true
++            if forcePRFetch { pendingForcePRFetch = true }
+             return
+         }
+-        performRefresh(incremental: true)
++        performRefresh(incremental: incremental, forcePRFetch: forcePRFetch)
++    }
++
++    func setActive(_ active: Bool) {
++        guard isActive != active else { return }
++        isActive = active
++        guard active else { return }
++        if pendingRefresh {
++            let force = pendingForcePRFetch
++            pendingRefresh = false
++            pendingForcePRFetch = false
++            requestRefresh(incremental: true, forcePRFetch: force)
++        }
+     }
+ 
+     func refresh() {
+@@ -361,8 +385,10 @@ final class VCSTabState {
+                 self.isRefreshing = false
+                 GitSignpost.end("performRefresh", refreshSignpost)
+                 if self.pendingRefresh {
++                    let force = self.pendingForcePRFetch
+                     self.pendingRefresh = false
+-                    self.performRefresh(incremental: true)
++                    self.pendingForcePRFetch = false
++                    self.requestRefresh(incremental: true, forcePRFetch: force)
+                 }
+             }
+             do {
+diff --git a/Muxy/Services/FileSystemWatcherHub.swift b/Muxy/Services/FileSystemWatcherHub.swift
+new file mode 100644
+index 0000000..3c2ac98
+--- /dev/null
++++ b/Muxy/Services/FileSystemWatcherHub.swift
+@@ -0,0 +1,89 @@
++import Foundation
++
++final class FileSystemWatcherSubscription: @unchecked Sendable {
++    fileprivate let id = UUID()
++    fileprivate let directoryPath: String
++    fileprivate weak var hub: FileSystemWatcherHub?
++
++    fileprivate init(directoryPath: String, hub: FileSystemWatcherHub) {
++        self.directoryPath = directoryPath
++        self.hub = hub
++    }
++
++    deinit {
++        hub?.unsubscribe(id: id, directoryPath: directoryPath)
++    }
++}
++
++final class FileSystemWatcherHub: @unchecked Sendable {
++    static let shared = FileSystemWatcherHub()
++
++    private struct Entry {
++        let watcher: FileSystemWatcher
++        var handlers: [UUID: @Sendable () -> Void]
++    }
++
++    private let lock = NSLock()
++    private var entries: [String: Entry] = [:]
++
++    func subscribe(
++        directoryPath: String,
++        handler: @escaping @Sendable () -> Void
++    ) -> FileSystemWatcherSubscription? {
++        let subscription = FileSystemWatcherSubscription(directoryPath: directoryPath, hub: self)
++
++        lock.lock()
++        if var entry = entries[directoryPath] {
++            entry.handlers[subscription.id] = handler
++            entries[directoryPath] = entry
++            lock.unlock()
++            return subscription
++        }
++        lock.unlock()
++
++        guard let watcher = FileSystemWatcher(directoryPath: directoryPath, handler: { [weak self] in
++            self?.fire(directoryPath: directoryPath)
++        })
++        else {
++            return nil
++        }
++
++        lock.lock()
++        if var entry = entries[directoryPath] {
++            entry.handlers[subscription.id] = handler
++            entries[directoryPath] = entry
++        } else {
++            entries[directoryPath] = Entry(
++                watcher: watcher,
++                handlers: [subscription.id: handler]
++            )
++        }
++        lock.unlock()
++
++        return subscription
++    }
++
++    fileprivate func unsubscribe(id: UUID, directoryPath: String) {
++        lock.lock()
++        guard var entry = entries[directoryPath] else {
++            lock.unlock()
++            return
++        }
++        entry.handlers.removeValue(forKey: id)
++        if entry.handlers.isEmpty {
++            entries.removeValue(forKey: directoryPath)
++        } else {
++            entries[directoryPath] = entry
++        }
++        lock.unlock()
++    }
++
++    private func fire(directoryPath: String) {
++        lock.lock()
++        let handlers = entries[directoryPath]?.handlers.values.map(\.self) ?? []
++        lock.unlock()
++        for handler in handlers {
++            handler()
++        }
++    }
++}
+diff --git a/Muxy/Services/GhosttyRuntimeEventAdapter.swift b/Muxy/Services/GhosttyRuntimeEventAdapter.swift
+index 4d7063f..66930dc 100644
+--- a/Muxy/Services/GhosttyRuntimeEventAdapter.swift
++++ b/Muxy/Services/GhosttyRuntimeEventAdapter.swift
+@@ -14,10 +14,24 @@ protocol GhosttyRuntimeEventHandling {
+     func closeSurface(userdata: UnsafeMutableRawPointer?, needsConfirm: Bool)
+ }
+ 
+-final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
++final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling, @unchecked Sendable {
++    private let tickLock = NSLock()
++    private var tickPending = false
++
+     func wakeup() {
+-        DispatchQueue.main.async {
+-            GhosttyService.shared.tick()
++        tickLock.lock()
++        let alreadyPending = tickPending
++        tickPending = true
++        tickLock.unlock()
++        guard !alreadyPending else { return }
++        DispatchQueue.main.async { [weak self] in
++            guard let self else { return }
++            tickLock.lock()
++            tickPending = false
++            tickLock.unlock()
++            MainActor.assumeIsolated {
++                GhosttyService.shared.tick()
++            }
+         }
+     }
+ 
+diff --git a/Muxy/Views/MainWindow.swift b/Muxy/Views/MainWindow.swift
+index 8cc39f3..cd3d889 100644
+--- a/Muxy/Views/MainWindow.swift
++++ b/Muxy/Views/MainWindow.swift
+@@ -116,13 +116,17 @@ struct MainWindow: View {
+                     pruneFileTreeStates()
+                 },
+                 onEnsurePanels: {
+-                    guard let project = activeProject else { return }
++                    guard let project = activeProject else {
++                        syncActiveStates()
++                        return
++                    }
+                     if vcsPanelVisible, VCSDisplayMode.current == .attached {
+                         ensureVCSState(for: project)
+                     }
+                     if fileTreePanelVisible {
+                         ensureFileTreeState(for: project)
+                     }
++                    syncActiveStates()
+                 },
+                 onSyncFileTreeSelection: syncFileTreeSelection,
+                 onLastTabClosePresented: { presentCloseConfirmation(.lastTab) },
+@@ -737,8 +741,12 @@ struct MainWindow: View {
+     private func ensureFileTreeState(for project: Project) {
+         guard let key = appState.activeWorktreeKey(for: project.id) else { return }
+         let path = activeWorktreePath(for: project)
+-        if let existing = fileTreeStates[key], existing.rootPath == path { return }
++        if let existing = fileTreeStates[key], existing.rootPath == path {
++            syncActiveStates()
++            return
++        }
+         fileTreeStates[key] = FileTreeState(rootPath: path)
++        syncActiveStates()
+     }
+ 
+     private var activeEditorState: EditorTabState? {
+@@ -831,8 +839,22 @@ struct MainWindow: View {
+ 
+     private func ensureVCSState(for project: Project) {
+         guard let key = appState.activeWorktreeKey(for: project.id) else { return }
+-        guard vcsStates[key] == nil else { return }
++        if vcsStates[key] != nil {
++            syncActiveStates()
++            return
++        }
+         vcsStates[key] = VCSTabState(projectPath: activeWorktreePath(for: project))
++        syncActiveStates()
++    }
++
++    private func syncActiveStates() {
++        let activeKey = activeWorktreeKey
++        for (key, state) in vcsStates {
++            state.setActive(key == activeKey)
++        }
++        for (key, state) in fileTreeStates {
++            state.setActive(key == activeKey)
++        }
+     }
+ 
+     private func activeWorktreePath(for project: Project) -> String {

@@ -230,10 +230,13 @@ final class VCSTabState {
     @ObservationIgnored private var prAutoSyncTask: Task<Void, Never>?
     @ObservationIgnored private var aiGenerationTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileSystemWatcher?
+    @ObservationIgnored private var watcherSubscription: FileSystemWatcherSubscription?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var pendingRefresh = false
     @ObservationIgnored private var refreshAndWaitTask: Task<Void, Never>?
+    @ObservationIgnored private var isActive = true
+    @ObservationIgnored private var pendingForcePRFetch = false
     @ObservationIgnored private var lastFetchedHeadSha: String?
     @ObservationIgnored private var pendingPRFetchBranch: String?
     private(set) var hasCompletedInitialLoad = false
@@ -277,7 +280,7 @@ final class VCSTabState {
     }
 
     private func startWatching() {
-        watcher = FileSystemWatcher(directoryPath: projectPath) { [weak self] in
+        watcherSubscription = FileSystemWatcherHub.shared.subscribe(directoryPath: projectPath) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.watcherDidFire()
             }
@@ -295,17 +298,39 @@ final class VCSTabState {
                   notifiedPath == path
             else { return }
             MainActor.assumeIsolated {
-                self?.performRefresh(incremental: true, forcePRFetch: true)
+                self?.requestRefresh(incremental: true, forcePRFetch: true)
             }
         }
     }
 
     private func watcherDidFire() {
-        guard !isRefreshing else {
+        requestRefresh(incremental: true)
+    }
+
+    private func requestRefresh(incremental: Bool, forcePRFetch: Bool = false) {
+        guard isActive else {
             pendingRefresh = true
+            if forcePRFetch { pendingForcePRFetch = true }
             return
         }
-        performRefresh(incremental: true)
+        guard !isRefreshing else {
+            pendingRefresh = true
+            if forcePRFetch { pendingForcePRFetch = true }
+            return
+        }
+        performRefresh(incremental: incremental, forcePRFetch: forcePRFetch)
+    }
+
+    func setActive(_ active: Bool) {
+        guard isActive != active else { return }
+        isActive = active
+        guard active else { return }
+        if pendingRefresh {
+            let force = pendingForcePRFetch
+            pendingRefresh = false
+            pendingForcePRFetch = false
+            requestRefresh(incremental: true, forcePRFetch: force)
+        }
     }
 
     func refresh() {
@@ -402,8 +427,10 @@ final class VCSTabState {
                 self.isRefreshing = false
                 GitSignpost.end("performRefresh", refreshSignpost)
                 if self.pendingRefresh {
+                    let force = self.pendingForcePRFetch
                     self.pendingRefresh = false
-                    self.performRefresh(incremental: true)
+                    self.pendingForcePRFetch = false
+                    self.requestRefresh(incremental: true, forcePRFetch: force)
                 }
             }
             do {
