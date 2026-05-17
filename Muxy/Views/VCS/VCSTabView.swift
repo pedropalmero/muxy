@@ -15,6 +15,9 @@ struct VCSTabView: View {
     @State private var showInlinePRForm = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
+    @State private var panelHasKeyboardFocus = false
+    @State private var panelFocusToken = 0
+    @FocusState private var commitMessageFocused: Bool
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -38,9 +41,18 @@ struct VCSTabView: View {
             content
         }
         .background(MuxyTheme.bg)
+        .background(keyCaptureLayer)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onFocus)
+        .onTapGesture {
+            activatePanelFocus()
+            onFocus()
+        }
         .onAppear {
+            if focused {
+                DispatchQueue.main.async {
+                    applyFocusedTarget()
+                }
+            }
             if !state.hasCompletedInitialLoad, !state.isLoadingFiles {
                 state.refresh()
             }
@@ -49,6 +61,29 @@ struct VCSTabView: View {
             if !state.hasCompletedInitialLoad, !state.isLoadingFiles {
                 state.refresh()
             }
+        }
+        .onChange(of: state.focus) { _, _ in
+            applyFocusedTarget()
+        }
+        .onChange(of: focused) { _, isFocused in
+            if isFocused {
+                applyFocusedTarget()
+            } else if !panelHasKeyboardFocus {
+                commitMessageFocused = false
+            }
+        }
+        .onChange(of: commitMessageFocused) { _, isFocused in
+            if isFocused {
+                state.focus = .commitMessage
+            } else if state.focus == .commitMessage, canClaimKeyboardFocus {
+                requestPanelFocus()
+            }
+        }
+        .onChange(of: showInlinePRForm) { _, isShowing in
+            if isShowing, state.focus == .commitMessage {
+                state.cyclePanelTargetForward(includeCommitMessage: false)
+            }
+            applyFocusedTarget()
         }
         .onChange(of: state.showPushUpstreamConfirmation) { _, show in
             guard show else { return }
@@ -451,20 +486,18 @@ struct VCSTabView: View {
                         .padding(.vertical, UIMetrics.spacing5)
                         .allowsHitTesting(false)
                 }
-                TextEditor(text: $state.commitMessage)
-                    .font(.system(size: UIMetrics.fontBody))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal, UIMetrics.scaled(5))
-                    .padding(.vertical, UIMetrics.scaled(9))
-                    .frame(minHeight: 27, maxHeight: 50)
-                    .onKeyPress(.return, phases: .down) { keyPress in
-                        if keyPress.modifiers.contains(.command) {
-                            state.commit()
-                            return .handled
-                        }
-                        return .ignored
-                    }
+                VCSCommitMessageEditor(
+                    text: $state.commitMessage,
+                    focused: commitMessageFocused,
+                    onFocusChange: { commitMessageFocused = $0 },
+                    onSubmit: { state.commit() },
+                    onFocusNext: { state.cyclePanelTargetForward() },
+                    onFocusPrevious: { state.cyclePanelTargetBackward() },
+                    onEscape: { state.cyclePanelTargetBackward() }
+                )
+                .padding(.horizontal, UIMetrics.scaled(5))
+                .padding(.vertical, UIMetrics.scaled(9))
+                .frame(minHeight: 27, maxHeight: 50)
 
                 HStack {
                     Spacer()
@@ -544,7 +577,7 @@ struct VCSTabView: View {
         }
         .buttonStyle(.plain)
         .disabled(!commitEnabled || state.isCommitting)
-        .help("Commit staged changes")
+        .help("Commit staged changes (⌘↵)")
     }
 
     private var pullButton: some View {
@@ -728,6 +761,120 @@ struct VCSTabView: View {
     private func openDiffInTab(_ relativePath: String, isStaged: Bool) {
         guard let projectID = appState.activeProjectID else { return }
         appState.openDiffViewer(vcs: state, filePath: relativePath, isStaged: isStaged, projectID: projectID)
+    }
+
+    private func activatePanelFocus() {
+        commitMessageFocused = false
+        requestPanelFocus()
+    }
+
+    private func applyFocusedTarget() {
+        guard canClaimKeyboardFocus else {
+            if commitMessageFocused {
+                commitMessageFocused = false
+            }
+            return
+        }
+        if state.focus == .commitMessage, !showInlinePRForm {
+            commitMessageFocused = true
+        } else {
+            commitMessageFocused = false
+            requestPanelFocus()
+        }
+    }
+
+    private var canClaimKeyboardFocus: Bool {
+        focused || panelHasKeyboardFocus
+    }
+
+    private var keyCaptureLayer: some View {
+        VCSKeyCapture(
+            focusToken: panelFocusToken,
+            hasFocus: $panelHasKeyboardFocus,
+            canHandleKeys: { !commitMessageFocused && canClaimKeyboardFocus },
+            onAction: handleVCSAction
+        )
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func requestPanelFocus() {
+        panelFocusToken &+= 1
+    }
+
+    @discardableResult
+    private func handleVCSAction(_ action: ShortcutAction) -> Bool {
+        switch action {
+        case .vcsNextRow:
+            state.selectNextRow()
+            return true
+        case .vcsPrevRow:
+            state.selectPrevRow()
+            return true
+        case .vcsNextSection:
+            state.cyclePanelTargetForward(includeCommitMessage: !showInlinePRForm)
+            return true
+        case .vcsPrevSection:
+            state.cyclePanelTargetBackward(includeCommitMessage: !showInlinePRForm)
+            return true
+        case .vcsActivateRow:
+            return activateFocusedRow()
+        case .vcsToggleExpand:
+            state.toggleFocusedExpand()
+            return true
+        case .vcsStageSelected:
+            state.stageFocused()
+            return true
+        case .vcsUnstageSelected:
+            state.unstageFocused()
+            return true
+        case .vcsDiscardSelected:
+            guard let path = state.discardFocusedPath() else { return false }
+            pendingDiscardPath = path
+            return true
+        case .vcsOpenDiff:
+            guard let target = state.focusedDiffTarget() else { return false }
+            openDiffInTab(target.path, isStaged: target.isStaged)
+            return true
+        case .vcsStageAll:
+            guard !state.unstagedFiles.isEmpty else { return false }
+            state.stageAll()
+            return true
+        case .vcsUnstageAll:
+            guard !state.stagedFiles.isEmpty else { return false }
+            state.unstageAll()
+            return true
+        case .vcsDiscardAll:
+            guard state.hasAnyChanges else { return false }
+            showDiscardAllConfirmation = true
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func activateFocusedRow() -> Bool {
+        switch state.focus {
+        case let .section(section):
+            let wasCollapsed = state.isSectionCollapsed(section)
+            state.toggleSectionCollapse(section)
+            if wasCollapsed { state.selectNextRow() }
+            return true
+        case let .folder(section, path):
+            state.toggleFolderExpanded(path, section: section)
+            return true
+        case let .file(_, path):
+            openFileInEditor(path)
+            return true
+        case let .pullRequest(number):
+            guard let pr = state.filteredPullRequests.first(where: { $0.number == number }) else { return false }
+            pendingCheckoutPR = pr
+            return true
+        case .commit,
+             .commitMessage,
+             .none:
+            return false
+        }
     }
 }
 
@@ -1389,11 +1536,16 @@ private struct SectionSplitLayout: View {
         case .staged:
             VStack(spacing: 0) {
                 sectionHeader(for: .staged, collapsed: false)
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        fileList(for: state.stagedFiles, isStaged: true)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            fileList(for: state.stagedFiles, isStaged: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: state.focus) { _, focus in
+                        scrollToFileListFocus(focus, section: .staged, proxy: proxy)
+                    }
                 }
             }
             .frame(height: height)
@@ -1407,11 +1559,16 @@ private struct SectionSplitLayout: View {
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            fileList(for: state.unstagedFiles, isStaged: false)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                fileList(for: state.unstagedFiles, isStaged: false)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .onChange(of: state.focus) { _, focus in
+                            scrollToFileListFocus(focus, section: .changes, proxy: proxy)
+                        }
                     }
                 }
             }
@@ -1436,8 +1593,29 @@ private struct SectionSplitLayout: View {
         }
     }
 
+    private func stateSection(for kind: SectionKind) -> VCSTabState.Section {
+        switch kind {
+        case .staged: .staged
+        case .changes: .changes
+        case .history: .history
+        case .pullRequests: .pullRequests
+        }
+    }
+
+    private func scrollToFileListFocus(_ focus: VCSTabState.Focus?, section: VCSTabState.Section, proxy: ScrollViewProxy) {
+        switch focus {
+        case let .folder(focusSection, path) where focusSection == section:
+            proxy.scrollTo("folder-\(section)-\(path)", anchor: .center)
+        case let .file(focusSection, path) where focusSection == section:
+            proxy.scrollTo("file-\(section)-\(path)", anchor: .center)
+        default:
+            break
+        }
+    }
+
     private func sectionHeader(for section: SectionKind, collapsed: Bool) -> some View {
         let isCollapsedState = collapsed
+        let isSelected = state.focus == .section(stateSection(for: section))
 
         return HStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
@@ -1452,7 +1630,7 @@ private struct SectionSplitLayout: View {
 
                         Text(section.title)
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                            .foregroundStyle(MuxyTheme.fgMuted)
+                            .foregroundStyle(isSelected ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     }
                 }
                 .buttonStyle(.plain)
@@ -1473,7 +1651,11 @@ private struct SectionSplitLayout: View {
             }
         }
         .frame(height: Self.sectionHeaderHeight)
-        .background(MuxyTheme.bg)
+        .background(isSelected ? MuxyTheme.hover : MuxyTheme.bg)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            state.focus = .section(stateSection(for: section))
+        }
     }
 
     private func sectionCount(for section: SectionKind) -> Int {
@@ -1599,17 +1781,23 @@ private struct SectionSplitLayout: View {
     }
 
     private func folderSection(_ folder: VCSFileTree.Folder, isStaged: Bool) -> some View {
-        VStack(spacing: 0) {
+        let section: VCSTabState.Section = isStaged ? .staged : .changes
+        let isSelected = state.focus == .folder(section: section, path: folder.path)
+
+        return VStack(spacing: 0) {
             FolderRow(
                 name: folder.name,
                 depth: folder.depth,
                 fileCount: folder.fileCount,
                 expanded: state.isFolderExpanded(folder.path, isStaged: isStaged),
+                isSelected: isSelected,
                 onToggle: {
                     onFocus()
+                    state.focus = .folder(section: section, path: folder.path)
                     state.toggleFolderExpanded(folder.path, isStaged: isStaged)
                 }
             )
+            .id("folder-\(section)-\(folder.path)")
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
         }
@@ -1625,6 +1813,8 @@ private struct SectionSplitLayout: View {
         let expanded = state.expandedFilePaths.contains(file.path)
         let stats = state.displayedStats(for: file)
         let statusText = isStaged ? file.stagedStatusText : file.unstagedStatusText
+        let section: VCSTabState.Section = isStaged ? .staged : .changes
+        let isSelected = state.focus == .file(section: section, path: file.path)
 
         return VStack(spacing: 0) {
             FileRow(
@@ -1635,8 +1825,10 @@ private struct SectionSplitLayout: View {
                 isStaged: isStaged,
                 displayPath: displayPath ?? file.path,
                 depth: depth,
+                isSelected: isSelected,
                 onToggle: {
                     onFocus()
+                    state.focus = .file(section: section, path: file.path)
                     state.toggleExpanded(filePath: file.path)
                 },
                 onStage: { state.stageFile(file.path) },
@@ -1645,6 +1837,7 @@ private struct SectionSplitLayout: View {
                 onOpenInEditor: { onOpenInEditor(file.path) },
                 onOpenDiff: { onOpenDiff(file.path, isStaged) }
             )
+            .id("file-\(section)-\(file.path)")
 
             if expanded {
                 expandedDiff(for: file)
@@ -1683,6 +1876,248 @@ private enum SectionKind: Hashable {
     }
 }
 
+private struct VCSKeyCapture: NSViewRepresentable {
+    let focusToken: Int
+    @Binding var hasFocus: Bool
+    let canHandleKeys: () -> Bool
+    let onAction: (ShortcutAction) -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> VCSKeyCaptureView {
+        let view = VCSKeyCaptureView()
+        configure(view)
+        context.coordinator.lastToken = focusToken
+        return view
+    }
+
+    func updateNSView(_ nsView: VCSKeyCaptureView, context: Context) {
+        configure(nsView)
+        if context.coordinator.lastToken != focusToken {
+            context.coordinator.lastToken = focusToken
+            nsView.requestFocusClaim()
+        }
+    }
+
+    private func configure(_ view: VCSKeyCaptureView) {
+        view.canHandleKeys = canHandleKeys
+        view.onFocusChange = { focused in
+            hasFocus = focused
+        }
+        view.onAction = onAction
+    }
+
+    final class Coordinator {
+        var lastToken: Int = .min
+    }
+}
+
+private final class VCSKeyCaptureView: NSView {
+    var canHandleKeys: (() -> Bool)?
+    var onFocusChange: ((Bool) -> Void)?
+    var onAction: ((ShortcutAction) -> Bool)?
+
+    private var focusClaimPending = false
+
+    override var acceptsFirstResponder: Bool { true }
+
+    func requestFocusClaim() {
+        if window != nil {
+            window?.makeFirstResponder(self)
+            return
+        }
+        focusClaimPending = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard focusClaimPending, let window else { return }
+        focusClaimPending = false
+        window.makeFirstResponder(self)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result { onFocusChange?(true) }
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        if result { onFocusChange?(false) }
+        return result
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard canHandleKeys?() ?? true,
+              let action = KeyBindingStore.shared.action(for: event, scopes: [.vcsPanel]),
+              onAction?(action) == true
+        else {
+            super.keyDown(with: event)
+            return
+        }
+    }
+}
+
+private struct VCSCommitMessageEditor: NSViewRepresentable {
+    @Binding var text: String
+    let focused: Bool
+    let onFocusChange: (Bool) -> Void
+    let onSubmit: () -> Void
+    let onFocusNext: () -> Void
+    let onFocusPrevious: () -> Void
+    let onEscape: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.autohidesScrollers = true
+        scrollView.contentView.drawsBackground = false
+
+        let textContainer = NSTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = true
+        textContainer.lineFragmentPadding = 0
+
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+
+        let textStorage = NSTextStorage()
+        textStorage.addLayoutManager(layoutManager)
+
+        let textView = VCSCommitMessageTextView(frame: .zero, textContainer: textContainer)
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainerInset = NSSize(width: 0, height: 0)
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isAutomaticTextCompletionEnabled = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.smartInsertDeleteEnabled = false
+        textView.isGrammarCheckingEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.font = .systemFont(ofSize: UIMetrics.fontBody)
+        textView.textColor = NSColor(MuxyTheme.fg)
+        textView.insertionPointColor = NSColor(MuxyTheme.fg)
+        textView.delegate = context.coordinator
+        textView.onSubmit = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onSubmit()
+        }
+        textView.string = text
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? VCSCommitMessageTextView else { return }
+        context.coordinator.parent = self
+        textView.onSubmit = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onSubmit()
+        }
+        textView.font = .systemFont(ofSize: UIMetrics.fontBody)
+        textView.textColor = NSColor(MuxyTheme.fg)
+        textView.insertionPointColor = NSColor(MuxyTheme.fg)
+
+        if textView.string != text {
+            textView.string = text
+        }
+
+        if focused, textView.window?.firstResponder !== textView {
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: VCSCommitMessageEditor
+        weak var textView: VCSCommitMessageTextView?
+
+        init(parent: VCSCommitMessageEditor) {
+            self.parent = parent
+        }
+
+        func textDidBeginEditing(_: Notification) {
+            parent.onFocusChange(true)
+        }
+
+        func textDidEndEditing(_: Notification) {
+            parent.onFocusChange(false)
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+
+        func textView(_: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard let command = VCSCommitMessageEditorCommandMapper.command(for: commandSelector) else {
+                return false
+            }
+
+            switch command {
+            case .focusNext:
+                parent.onFocusNext()
+            case .focusPrevious:
+                parent.onFocusPrevious()
+            case .escape:
+                parent.onEscape()
+            }
+            return true
+        }
+    }
+}
+
+private final class VCSCommitMessageTextView: NSTextView {
+    var onSubmit: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           event.charactersIgnoringModifiers == "\r"
+        {
+            onSubmit?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
+enum VCSCommitMessageEditorCommand: Equatable {
+    case focusNext
+    case focusPrevious
+    case escape
+}
+
+enum VCSCommitMessageEditorCommandMapper {
+    static func command(for selector: Selector) -> VCSCommitMessageEditorCommand? {
+        if selector == #selector(NSResponder.insertTab(_:)) { return .focusNext }
+        if selector == #selector(NSResponder.insertBacktab(_:)) { return .focusPrevious }
+        if selector == #selector(NSResponder.cancelOperation(_:)) { return .escape }
+        return nil
+    }
+}
+
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
@@ -1697,6 +2132,7 @@ private struct FileRow: View {
     let isStaged: Bool
     let displayPath: String
     let depth: Int
+    let isSelected: Bool
     let onToggle: () -> Void
     let onStage: () -> Void
     let onUnstage: () -> Void
@@ -1745,7 +2181,7 @@ private struct FileRow: View {
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if hovered {
+            if hovered || isSelected {
                 actionButtons
             }
 
@@ -1769,7 +2205,7 @@ private struct FileRow: View {
         .padding(.leading, UIMetrics.spacing5 + CGFloat(depth) * UIMetrics.iconMD)
         .padding(.trailing, UIMetrics.spacing5)
         .frame(height: UIMetrics.scaled(34))
-        .background(MuxyTheme.bg)
+        .background(isSelected ? MuxyTheme.hover : MuxyTheme.bg)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture(perform: onToggle)
@@ -1778,17 +2214,17 @@ private struct FileRow: View {
     private var actionButtons: some View {
         HStack(spacing: 0) {
             IconButton(symbol: "doc.text", size: 11, accessibilityLabel: "Open in Editor", action: onOpenInEditor)
-                .help("Open in Editor")
+                .help("Open in Editor (\(KeyBindingStore.shared.combo(for: .vcsActivateRow).displayString))")
             IconButton(symbol: "rectangle.split.2x1", size: 11, accessibilityLabel: "Open Diff in New Tab", action: onOpenDiff)
-                .help("Open Diff in New Tab")
+                .help("Open Diff in New Tab (\(KeyBindingStore.shared.combo(for: .vcsOpenDiff).displayString))")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage", action: onUnstage)
-                    .help("Unstage")
+                    .help("Unstage (\(KeyBindingStore.shared.combo(for: .vcsUnstageSelected).displayString))")
             } else {
                 IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage", action: onStage)
-                    .help("Stage")
+                    .help("Stage (\(KeyBindingStore.shared.combo(for: .vcsStageSelected).displayString))")
                 IconButton(symbol: "arrow.uturn.backward", size: 11, accessibilityLabel: "Discard Changes", action: onDiscard)
-                    .help("Discard changes")
+                    .help("Discard changes (\(KeyBindingStore.shared.combo(for: .vcsDiscardSelected).displayString))")
             }
         }
     }
@@ -1799,6 +2235,7 @@ private struct FolderRow: View {
     let depth: Int
     let fileCount: Int
     let expanded: Bool
+    let isSelected: Bool
     let onToggle: () -> Void
 
     var body: some View {
@@ -1829,7 +2266,7 @@ private struct FolderRow: View {
         .padding(.leading, UIMetrics.spacing5 + CGFloat(depth) * UIMetrics.iconMD)
         .padding(.trailing, UIMetrics.spacing5)
         .frame(height: UIMetrics.scaled(30))
-        .background(MuxyTheme.bg)
+        .background(isSelected ? MuxyTheme.hover : MuxyTheme.bg)
         .contentShape(Rectangle())
         .onTapGesture(perform: onToggle)
     }

@@ -59,6 +59,14 @@ final class KeyBindingStore {
         }
     }
 
+    func action(for combo: KeyCombo, scopes: Set<ShortcutScope>) -> ShortcutAction? {
+        ShortcutAction.allCases.first { action in
+            guard scopes.contains(action.scope) else { return false }
+            let bindingCombo = self.combo(for: action)
+            return bindingCombo.key == combo.key && bindingCombo.modifiers == combo.modifiers
+        }
+    }
+
     func conflictingAction(for combo: KeyCombo, excluding: ShortcutAction) -> ShortcutAction? {
         conflictingAction(for: combo, excluding: Optional(excluding))
     }

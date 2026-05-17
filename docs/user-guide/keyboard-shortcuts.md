@@ -65,6 +65,26 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | Theme Picker | `Cmd+Shift+K` |
 | Reload Configuration | `Cmd+Shift+R` |
 
+## Source Control
+
+These shortcuts only apply while the Source Control panel has keyboard focus and text input is not focused.
+
+| Action | Shortcut |
+| --- | --- |
+| Next Row | `↓` |
+| Previous Row | `↑` |
+| Next Section | `Tab` |
+| Previous Section | `Shift+Tab` |
+| Activate Row (open file / checkout PR / toggle folder or section) | `Return` |
+| Toggle Expand (inline diff, folder, or section) | `Space` |
+| Stage Selected | `S` |
+| Unstage Selected | `U` |
+| Discard Selected | `D` |
+| Open Diff | `O` |
+| Stage All | `Shift+S` |
+| Unstage All | `Shift+U` |
+| Discard All | `Shift+D` |
+
 ## Editor
 
 | Action | Shortcut |

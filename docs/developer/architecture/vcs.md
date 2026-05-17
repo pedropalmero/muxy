@@ -6,6 +6,8 @@ The VCS tab is organized top-to-bottom as:
 2. **Commit area** — commit message field + `Commit` (`⌘↵`), `Pull` (`↓N` badge when behind), `Push` (`↑N` when ahead).
 3. **Sections** — Staged / Changes / History / Pull Requests, vertically resizable.
 
+Keyboard navigation is local to `VCSTabView`. `VCSTabState.Focus` tracks the selected section, folder, file, pull request, commit, or commit message. `VCSTabView` captures key events with an AppKit first-responder layer and resolves `.vcsPanel` shortcuts only while the panel owns focus and text input is not focused, so global Tab traversal and rich-input typing remain unaffected. `.vcsPanel` shortcuts are deliberately bare keys (no `⌘` required) because they are panel-local navigation/activation primitives resolved from physical key codes: `↑`/`↓` move visible rows, `Tab`/`Shift+Tab` cycle sections + commit message, `Return` activates, `Space` toggles expand, `S`/`U`/`D` stage / unstage / discard the focused file, `O` opens its diff in a new tab, and `Shift+S`/`Shift+U`/`Shift+D` stage / unstage / discard all.
+
 ## PR pill states
 
 ```mermaid

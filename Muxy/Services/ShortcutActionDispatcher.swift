@@ -192,7 +192,20 @@ struct ShortcutActionDispatcher {
              .selectProject6,
              .selectProject7,
              .selectProject8,
-             .selectProject9:
+             .selectProject9,
+             .vcsNextRow,
+             .vcsPrevRow,
+             .vcsNextSection,
+             .vcsPrevSection,
+             .vcsActivateRow,
+             .vcsToggleExpand,
+             .vcsStageSelected,
+             .vcsUnstageSelected,
+             .vcsDiscardSelected,
+             .vcsOpenDiff,
+             .vcsStageAll,
+             .vcsUnstageAll,
+             .vcsDiscardAll:
             return false
         }
     }

@@ -9,8 +9,14 @@ struct CommitHistoryView: View {
     @State private var pendingTagHash: String?
 
     var body: some View {
-        ScrollView {
-            historyContent
+        ScrollViewReader { proxy in
+            ScrollView {
+                historyContent
+            }
+            .onChange(of: state.focus) { _, focus in
+                guard case let .commit(hash) = focus else { return }
+                proxy.scrollTo("commit-\(hash)", anchor: .center)
+            }
         }
     }
 
@@ -37,6 +43,7 @@ struct CommitHistoryView: View {
                 CommitRow(
                     commit: commit,
                     currentBranch: state.branchName,
+                    isSelected: state.focus == .commit(hash: commit.id),
                     onCheckout: { state.switchBranch($0) },
                     onCheckoutDetached: { state.checkoutDetached($0) },
                     onCherryPick: { state.cherryPick($0) },
@@ -44,6 +51,7 @@ struct CommitHistoryView: View {
                     onCreateBranch: { pendingBranchHash = $0 },
                     onCreateTag: { pendingTagHash = $0 }
                 )
+                .id("commit-\(commit.id)")
             }
 
             if state.hasMoreCommits {
@@ -119,6 +127,7 @@ private struct NamePrompt: Identifiable {
 private struct CommitRow: View {
     let commit: GitCommit
     let currentBranch: String?
+    let isSelected: Bool
     let onCheckout: (String) -> Void
     let onCheckoutDetached: (String) -> Void
     let onCherryPick: (String) -> Void
@@ -169,7 +178,7 @@ private struct CommitRow: View {
 
             Spacer(minLength: 0)
 
-            if hovered {
+            if hovered || isSelected {
                 Text(commit.shortHash)
                     .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                     .foregroundStyle(MuxyTheme.fgDim)
@@ -178,7 +187,7 @@ private struct CommitRow: View {
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .frame(height: UIMetrics.scaled(40))
-        .background(hovered ? MuxyTheme.hover : .clear)
+        .background((hovered || isSelected) ? MuxyTheme.hover : .clear)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .contextMenu { contextMenuItems }

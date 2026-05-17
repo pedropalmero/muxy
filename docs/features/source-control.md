@@ -24,6 +24,10 @@ Configurable in **Settings → General**:
 
 Files are grouped into **Staged**, **Changes** (modified, tracked), and **Untracked**. Toggle between flat list and folder tree. Stage/unstage individual files or whole directories. Discard is in the right-click menu.
 
+## Keyboard navigation
+
+When the Source Control panel owns keyboard focus, `Tab` / `Shift+Tab` cycle between panel sections and the commit message without changing app-wide tab behavior. `↑` / `↓` move through the visible rows inside the focused section, including folder rows in folder-tree mode. `Return` activates the focused row (opens a file in the editor, checks out a pull request, or toggles a folder/section), and `Space` toggles the inline diff, folder, or section collapse. While a file row is focused you can `S` to stage, `U` to unstage, `D` to discard, or `O` to open its diff in a new tab. Use `Shift+S`, `Shift+U`, and `Shift+D` for stage all, unstage all, and discard all.
+
 ## Diffs
 
 Click a file to see its diff inline. Supports:

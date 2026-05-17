@@ -63,6 +63,19 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case navigateForward
     case toggleMaximizePane
     case toggleVoiceRecording
+    case vcsNextRow
+    case vcsPrevRow
+    case vcsNextSection
+    case vcsPrevSection
+    case vcsActivateRow
+    case vcsToggleExpand
+    case vcsStageSelected
+    case vcsUnstageSelected
+    case vcsDiscardSelected
+    case vcsOpenDiff
+    case vcsStageAll
+    case vcsUnstageAll
+    case vcsDiscardAll
 
     static let allCases: [Self] = [
         .newTab,
@@ -119,6 +132,19 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .navigateForward,
         .toggleMaximizePane,
         .toggleVoiceRecording,
+        .vcsNextRow,
+        .vcsPrevRow,
+        .vcsNextSection,
+        .vcsPrevSection,
+        .vcsActivateRow,
+        .vcsToggleExpand,
+        .vcsStageSelected,
+        .vcsUnstageSelected,
+        .vcsDiscardSelected,
+        .vcsOpenDiff,
+        .vcsStageAll,
+        .vcsUnstageAll,
+        .vcsDiscardAll,
     ]
 
     var id: String { rawValue }
@@ -196,6 +222,19 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
+        case .vcsNextRow: ShortcutMetadata(displayName: "Next Row", category: "Source Control", scope: .vcsPanel)
+        case .vcsPrevRow: ShortcutMetadata(displayName: "Previous Row", category: "Source Control", scope: .vcsPanel)
+        case .vcsNextSection: ShortcutMetadata(displayName: "Next Section", category: "Source Control", scope: .vcsPanel)
+        case .vcsPrevSection: ShortcutMetadata(displayName: "Previous Section", category: "Source Control", scope: .vcsPanel)
+        case .vcsActivateRow: ShortcutMetadata(displayName: "Activate Row", category: "Source Control", scope: .vcsPanel)
+        case .vcsToggleExpand: ShortcutMetadata(displayName: "Toggle Expand", category: "Source Control", scope: .vcsPanel)
+        case .vcsStageSelected: ShortcutMetadata(displayName: "Stage Selected", category: "Source Control", scope: .vcsPanel)
+        case .vcsUnstageSelected: ShortcutMetadata(displayName: "Unstage Selected", category: "Source Control", scope: .vcsPanel)
+        case .vcsDiscardSelected: ShortcutMetadata(displayName: "Discard Selected", category: "Source Control", scope: .vcsPanel)
+        case .vcsOpenDiff: ShortcutMetadata(displayName: "Open Diff", category: "Source Control", scope: .vcsPanel)
+        case .vcsStageAll: ShortcutMetadata(displayName: "Stage All", category: "Source Control", scope: .vcsPanel)
+        case .vcsUnstageAll: ShortcutMetadata(displayName: "Unstage All", category: "Source Control", scope: .vcsPanel)
+        case .vcsDiscardAll: ShortcutMetadata(displayName: "Discard All", category: "Source Control", scope: .vcsPanel)
         }
     }
 
@@ -204,7 +243,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App", "Source Control"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -317,5 +356,18 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
         Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
+        Self(action: .vcsNextRow, combo: KeyCombo(key: KeyCombo.downArrowKey)),
+        Self(action: .vcsPrevRow, combo: KeyCombo(key: KeyCombo.upArrowKey)),
+        Self(action: .vcsNextSection, combo: KeyCombo(key: KeyCombo.tabKey)),
+        Self(action: .vcsPrevSection, combo: KeyCombo(key: KeyCombo.tabKey, shift: true)),
+        Self(action: .vcsActivateRow, combo: KeyCombo(key: KeyCombo.returnKey)),
+        Self(action: .vcsToggleExpand, combo: KeyCombo(key: " ")),
+        Self(action: .vcsStageSelected, combo: KeyCombo(key: "s")),
+        Self(action: .vcsUnstageSelected, combo: KeyCombo(key: "u")),
+        Self(action: .vcsDiscardSelected, combo: KeyCombo(key: "d")),
+        Self(action: .vcsOpenDiff, combo: KeyCombo(key: "o")),
+        Self(action: .vcsStageAll, combo: KeyCombo(key: "s", shift: true)),
+        Self(action: .vcsUnstageAll, combo: KeyCombo(key: "u", shift: true)),
+        Self(action: .vcsDiscardAll, combo: KeyCombo(key: "d", shift: true)),
     ]
 }

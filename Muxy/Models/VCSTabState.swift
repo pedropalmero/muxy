@@ -56,12 +56,21 @@ final class VCSTabState {
     }
 
     let projectPath: String
-    var files: [GitStatusFile] = []
+    var files: [GitStatusFile] = [] {
+        didSet {
+            reconcileFocusAfterFilesChanged(oldFiles: oldValue)
+            if hasCompletedInitialLoad, !files.isEmpty {
+                bootstrapFocusIfNeeded()
+            }
+        }
+    }
+
     var mode: ViewMode = .unified
     var fileListMode: FileListMode = .flat {
         didSet {
             guard isLoaded, fileListMode != oldValue else { return }
             VCSPersistedSettings.storeFileListMode(fileListMode, repoPath: projectPath)
+            reconcileFocusVisibility()
         }
     }
 
@@ -138,6 +147,25 @@ final class VCSTabState {
     var pullRequestStateFilter: GitRepositoryService.PRListFilter = .open
     var pullRequestAutoSyncMinutes: Int = 0
     var checkingOutPRNumber: Int?
+
+    enum Section: Equatable, Hashable {
+        case staged
+        case changes
+        case pullRequests
+        case history
+    }
+
+    enum Focus: Equatable {
+        case section(Section)
+        case folder(section: Section, path: String)
+        case file(section: Section, path: String)
+        case commit(hash: String)
+        case commitMessage
+        case pullRequest(number: Int)
+    }
+
+    var focus: Focus?
+    private var needsInitialFocus = true
 
     var stagedFiles: [GitStatusFile] {
         files.filter(\.isStaged)
@@ -396,11 +424,12 @@ final class VCSTabState {
                 }
 
                 let listChanged = files.map(\.path) != newFiles.map(\.path) || !changedPaths.isEmpty
+                isLoadingFiles = false
+                hasCompletedInitialLoad = true
                 if listChanged {
                     files = newFiles
                 }
-                isLoadingFiles = false
-                hasCompletedInitialLoad = true
+                bootstrapFocusIfNeeded()
 
                 for path in expandedFilePaths where validPaths.contains(path) && changedPaths.contains(path) {
                     loadDiff(filePath: path, forceFull: false)
@@ -455,6 +484,360 @@ final class VCSTabState {
         diffCache.collapseAll()
     }
 
+    var visibleSections: [Section] {
+        var result: [Section] = []
+        if !stagedFiles.isEmpty { result.append(.staged) }
+        if changesVisible { result.append(.changes) }
+        if pullRequestsVisible { result.append(.pullRequests) }
+        if historyVisible { result.append(.history) }
+        return result
+    }
+
+    func rows(for section: Section) -> [Focus] {
+        rows(for: section, files: files)
+    }
+
+    private func rows(for section: Section, files: [GitStatusFile]) -> [Focus] {
+        switch section {
+        case .staged:
+            fileRows(section: .staged, files: files.filter(\.isStaged), expandedFolders: expandedStagedFolderPaths)
+        case .changes:
+            fileRows(section: .changes, files: files.filter(\.isUnstaged), expandedFolders: expandedUnstagedFolderPaths)
+        case .pullRequests:
+            filteredPullRequests.map { .pullRequest(number: $0.number) }
+        case .history:
+            commits.map { .commit(hash: $0.id) }
+        }
+    }
+
+    private func fileRows(section: Section, files: [GitStatusFile], expandedFolders: Set<String>) -> [Focus] {
+        guard fileListMode == .folders else {
+            return files.map { .file(section: section, path: $0.path) }
+        }
+        return VCSFileTree.rows(files: files, expandedFolders: expandedFolders).map { row in
+            switch row {
+            case let .folder(folder):
+                .folder(section: section, path: folder.path)
+            case let .file(file, _):
+                .file(section: section, path: file.path)
+            }
+        }
+    }
+
+    private func visibleSections(for files: [GitStatusFile]) -> [Section] {
+        var result: [Section] = []
+        if files.contains(where: \.isStaged) { result.append(.staged) }
+        if changesVisible, files.contains(where: \.isUnstaged) { result.append(.changes) }
+        if pullRequestsVisible { result.append(.pullRequests) }
+        if historyVisible { result.append(.history) }
+        return result
+    }
+
+    func selectFirstRow() {
+        guard let section = visibleSections.first else {
+            focus = nil
+            return
+        }
+        focus = .section(section)
+    }
+
+    func bootstrapFocusIfNeeded() {
+        guard needsInitialFocus, focus == nil else { return }
+        guard hasCompletedInitialLoad || !files.isEmpty else { return }
+        guard let section = visibleSections.first else { return }
+        focus = .section(section)
+        needsInitialFocus = false
+    }
+
+    private func reconcileFocusAfterFilesChanged(oldFiles: [GitStatusFile]) {
+        guard let current = focus else { return }
+        switch current {
+        case let .section(section):
+            if !visibleSections.contains(section) {
+                focus = nearbyFocus(afterRemoving: section, oldFiles: oldFiles)
+            }
+        case let .folder(section, path):
+            if !rows(for: section).contains(.folder(section: section, path: path)) {
+                focus = nearbyFocus(afterRemovingFolderIn: section, path: path, oldFiles: oldFiles)
+            }
+        case let .file(section, path):
+            let currentTarget = Focus.file(section: section, path: path)
+            if rows(for: section).contains(currentTarget) {
+                return
+            }
+            if let visibleTarget = visibleTargetForFile(section: section, path: path) {
+                focus = visibleTarget
+                return
+            }
+            if section != .staged, let visibleTarget = visibleTargetForFile(section: .staged, path: path) {
+                focus = visibleTarget
+                return
+            }
+            if section != .changes, let visibleTarget = visibleTargetForFile(section: .changes, path: path) {
+                focus = visibleTarget
+                return
+            }
+            focus = nearbyFocus(afterRemovingFileIn: section, path: path, oldFiles: oldFiles)
+        case .commitMessage,
+             .commit,
+             .pullRequest:
+            break
+        }
+    }
+
+    private func reconcileFocusVisibility() {
+        guard let current = focus, let section = focusSection(current) else { return }
+        guard !rows(for: section).contains(current) else { return }
+        switch current {
+        case let .file(section, path):
+            focus = visibleTargetForFile(section: section, path: path)
+                ?? nearbyFocus(afterRemovingFileIn: section, path: path, oldFiles: files)
+        case let .folder(section, path):
+            focus = nearbyFocus(afterRemovingFolderIn: section, path: path, oldFiles: files)
+        case let .commit(hash):
+            if !rows(for: .history).contains(.commit(hash: hash)) {
+                focus = visibleSections.contains(.history) ? .section(.history) : visibleSections.first.map { .section($0) }
+            }
+        case let .pullRequest(number):
+            if !rows(for: .pullRequests).contains(.pullRequest(number: number)) {
+                focus = visibleSections.contains(.pullRequests) ? .section(.pullRequests) : visibleSections.first.map { .section($0) }
+            }
+        case .section,
+             .commitMessage:
+            break
+        }
+    }
+
+    private func nearbyFocus(afterRemoving section: Section, oldFiles: [GitStatusFile]) -> Focus? {
+        let oldSections = visibleSections(for: oldFiles)
+        guard let oldIndex = oldSections.firstIndex(of: section) else {
+            return visibleSections.first.map { .section($0) }
+        }
+        if oldIndex < visibleSections.count {
+            return .section(visibleSections[oldIndex])
+        }
+        return visibleSections.last.map { .section($0) }
+    }
+
+    private func nearbyFocus(afterRemovingFileIn section: Section, path: String, oldFiles: [GitStatusFile]) -> Focus? {
+        let oldRows = rows(for: section, files: oldFiles)
+        let newRows = rows(for: section)
+        if let oldIndex = oldRows.firstIndex(of: .file(section: section, path: path)), !newRows.isEmpty {
+            return newRows[min(oldIndex, newRows.count - 1)]
+        }
+        if visibleSections.contains(section) {
+            return .section(section)
+        }
+        return nearbyFocus(afterRemoving: section, oldFiles: oldFiles)
+    }
+
+    private func nearbyFocus(afterRemovingFolderIn section: Section, path: String, oldFiles: [GitStatusFile]) -> Focus? {
+        let oldRows = rows(for: section, files: oldFiles)
+        let newRows = rows(for: section)
+        if let oldIndex = oldRows.firstIndex(of: .folder(section: section, path: path)), !newRows.isEmpty {
+            return newRows[min(oldIndex, newRows.count - 1)]
+        }
+        if visibleSections.contains(section) {
+            return .section(section)
+        }
+        return nearbyFocus(afterRemoving: section, oldFiles: oldFiles)
+    }
+
+    private func visibleTargetForFile(section: Section, path: String) -> Focus? {
+        let rows = rows(for: section)
+        let fileTarget = Focus.file(section: section, path: path)
+        if rows.contains(fileTarget) {
+            return fileTarget
+        }
+        return rows.compactMap { target -> String? in
+            guard case let .folder(folderSection, folderPath) = target, folderSection == section else { return nil }
+            return path.hasPrefix(folderPath + "/") ? folderPath : nil
+        }
+        .max { $0.count < $1.count }
+        .map { .folder(section: section, path: $0) }
+    }
+
+    func cyclePanelTargetForward(includeCommitMessage: Bool = true) {
+        cyclePanelTarget(forward: true, includeCommitMessage: includeCommitMessage)
+    }
+
+    func cyclePanelTargetBackward(includeCommitMessage: Bool = true) {
+        cyclePanelTarget(forward: false, includeCommitMessage: includeCommitMessage)
+    }
+
+    func selectNextRow() {
+        guard let current = focus else {
+            selectFirstRow()
+            return
+        }
+        let sections = visibleSections
+        if case let .section(s) = current {
+            if !isSectionCollapsed(s), let first = rows(for: s).first {
+                focus = first
+            } else if let idx = sections.firstIndex(of: s), idx + 1 < sections.count {
+                focus = .section(sections[idx + 1])
+            }
+            return
+        }
+        guard let (section, index) = sectionAndIndex(for: current) else { return }
+        let sectionRows = rows(for: section)
+        if index + 1 < sectionRows.count {
+            focus = sectionRows[index + 1]
+            return
+        }
+        guard let sectionIndex = sections.firstIndex(of: section),
+              sectionIndex + 1 < sections.count
+        else { return }
+        focus = .section(sections[sectionIndex + 1])
+    }
+
+    func selectPrevRow() {
+        guard let current = focus else {
+            selectFirstRow()
+            return
+        }
+        let sections = visibleSections
+        if case let .section(s) = current {
+            guard let idx = sections.firstIndex(of: s), idx > 0 else { return }
+            let prev = sections[idx - 1]
+            if !isSectionCollapsed(prev), let last = rows(for: prev).last {
+                focus = last
+            } else {
+                focus = .section(prev)
+            }
+            return
+        }
+        guard let (section, index) = sectionAndIndex(for: current) else { return }
+        if index > 0 {
+            focus = rows(for: section)[index - 1]
+            return
+        }
+        focus = .section(section)
+    }
+
+    func cycleSectionForward() {
+        cyclePanelTargetForward(includeCommitMessage: false)
+    }
+
+    func cycleSectionBackward() {
+        cyclePanelTargetBackward(includeCommitMessage: false)
+    }
+
+    func stageFocused() {
+        guard case let .file(section, path) = focus, section == .changes else { return }
+        stageFile(path)
+    }
+
+    func unstageFocused() {
+        guard case let .file(section, path) = focus, section == .staged else { return }
+        unstageFile(path)
+    }
+
+    func discardFocusedPath() -> String? {
+        guard case let .file(section, path) = focus, section == .changes else { return nil }
+        return path
+    }
+
+    func focusedDiffTarget() -> (path: String, isStaged: Bool)? {
+        guard case let .file(section, path) = focus else { return nil }
+        switch section {
+        case .staged:
+            return (path, true)
+        case .changes:
+            return (path, false)
+        case .history,
+             .pullRequests:
+            return nil
+        }
+    }
+
+    func toggleFocusedExpand() {
+        switch focus {
+        case let .section(s):
+            toggleSectionCollapse(s)
+        case let .folder(section, path):
+            toggleFolderExpanded(path, section: section)
+        case let .file(_, path):
+            toggleExpanded(filePath: path)
+        default:
+            break
+        }
+    }
+
+    func isSectionCollapsed(_ section: Section) -> Bool {
+        switch section {
+        case .staged: stagedCollapsed
+        case .changes: changesCollapsed
+        case .history: historyCollapsed
+        case .pullRequests: pullRequestsCollapsed
+        }
+    }
+
+    func toggleSectionCollapse(_ section: Section) {
+        switch section {
+        case .staged: stagedCollapsed.toggle()
+        case .changes: changesCollapsed.toggle()
+        case .history:
+            historyCollapsed.toggle()
+            if !historyCollapsed, commits.isEmpty { loadCommits() }
+        case .pullRequests: pullRequestsCollapsed.toggle()
+        }
+    }
+
+    private func focusSection(_ focus: Focus) -> Section? {
+        switch focus {
+        case let .section(s): s
+        case let .folder(section, _): section
+        case let .file(section, _): section
+        case .commit: .history
+        case .commitMessage: nil
+        case .pullRequest: .pullRequests
+        }
+    }
+
+    private func sectionAndIndex(for target: Focus) -> (Section, Int)? {
+        guard let section = focusSection(target) else { return nil }
+        let sectionRows = rows(for: section)
+        guard let index = sectionRows.firstIndex(of: target) else { return nil }
+        return (section, index)
+    }
+
+    private func cyclePanelTarget(forward: Bool, includeCommitMessage: Bool) {
+        let targets = panelTargets(includeCommitMessage: includeCommitMessage)
+        guard !targets.isEmpty else { return }
+        guard let current = focus,
+              let index = panelTargetIndex(for: current, in: targets)
+        else {
+            focus = targets[0]
+            return
+        }
+        let offset = forward ? 1 : -1
+        focus = targets[(index + offset + targets.count) % targets.count]
+    }
+
+    private func panelTargets(includeCommitMessage: Bool) -> [Focus] {
+        var targets = visibleSections.map { Focus.section($0) }
+        if includeCommitMessage {
+            targets.append(.commitMessage)
+        }
+        return targets
+    }
+
+    private func panelTargetIndex(for target: Focus, in targets: [Focus]) -> Int? {
+        switch target {
+        case .commitMessage:
+            targets.firstIndex(of: .commitMessage)
+        case let .section(section),
+             let .folder(section, _),
+             let .file(section, _):
+            targets.firstIndex(of: .section(section))
+        case .commit:
+            targets.firstIndex(of: .section(.history))
+        case .pullRequest:
+            targets.firstIndex(of: .section(.pullRequests))
+        }
+    }
+
     func expandAll() {
         setExpanded(files: files, expanded: true)
     }
@@ -487,9 +870,15 @@ final class VCSTabState {
     }
 
     func toggleFolderExpanded(_ folderPath: String, isStaged: Bool) {
+        toggleFolderExpanded(folderPath, section: isStaged ? .staged : .changes)
+    }
+
+    func toggleFolderExpanded(_ folderPath: String, section: Section) {
+        let isStaged = section == .staged
         if isStaged {
             if expandedStagedFolderPaths.contains(folderPath) {
                 expandedStagedFolderPaths.remove(folderPath)
+                reconcileFocusVisibility()
                 return
             }
             expandedStagedFolderPaths.insert(folderPath)
@@ -498,6 +887,7 @@ final class VCSTabState {
 
         if expandedUnstagedFolderPaths.contains(folderPath) {
             expandedUnstagedFolderPaths.remove(folderPath)
+            reconcileFocusVisibility()
             return
         }
         expandedUnstagedFolderPaths.insert(folderPath)
